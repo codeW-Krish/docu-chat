@@ -55,7 +55,7 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # ---- Copy PHP Backend ----
 WORKDIR /var/www/html/backend
 COPY backend/composer.json backend/composer.lock ./
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+RUN composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-reqs
 
 COPY backend/ .
 
