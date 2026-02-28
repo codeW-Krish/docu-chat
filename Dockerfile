@@ -9,6 +9,7 @@ FROM php:8.2-apache AS base
 RUN apt-get update && apt-get install -y \
     # PHP extensions deps
     libpq-dev \
+    libicu-dev \
     libcurl4-openssl-dev \
     libzip-dev \
     unzip \
@@ -28,7 +29,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- PHP Extensions ----
-RUN docker-php-ext-install pdo pgsql pdo_pgsql curl zip
+RUN docker-php-ext-install pdo pgsql pdo_pgsql curl zip intl
 
 # ---- Apache Config ----
 RUN a2enmod rewrite headers
