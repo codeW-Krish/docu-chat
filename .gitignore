@@ -1,0 +1,41 @@
+# ================================
+# Root .gitignore - Chat with PDF
+# ================================
+
+# Environment files (NEVER commit these!)
+.env
+*.env
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Reference project (not needed for deployment)
+chat-with-pdf-o1/
+
+# Documentation / misc files not needed
+*.pdf
+*.odt
+reference_content.txt
+read_pdf.py
+
+# System generated
+.gemini/
+
+# Node modules (frontend has its own)
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Docker
+*.log

@@ -1,0 +1,18 @@
+# Docker ignore for faster builds
+node_modules
+.next
+.git
+*.md
+*.pdf
+*.odt
+chat-with-pdf-o1
+frontend
+.venv
+__pycache__
+*.pyc
+logs/*.log
+uploads/*
+writable/logs/*
+writable/cache/*
+writable/session/*
+writable/debugbar/*
