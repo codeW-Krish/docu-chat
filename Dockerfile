@@ -71,9 +71,12 @@ RUN python3 -m venv /app/ai-python/venv
 ENV PATH="/app/ai-python/venv/bin:$PATH"
 
 # Install Python deps (heavy - cached layer)
+# Install CPU-only PyTorch first (saves ~4GB by avoiding CUDA binaries)
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining Python deps
 COPY ai-python/requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy Python app
 COPY ai-python/ .
