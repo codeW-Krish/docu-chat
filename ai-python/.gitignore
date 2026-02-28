@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+logs/
+uploads/
+test_groq.py
+test_python_api.py
+insert_test_data.py
+requirements.txt.txt
