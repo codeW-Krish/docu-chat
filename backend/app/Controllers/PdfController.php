@@ -81,27 +81,39 @@ class PdfController extends BaseController
                 ]
             ])->setStatusCode(400);
         }
+        // Initialize Appwrite Client
+        $client = new \Appwrite\Client();
+        $client
+            ->setEndpoint(getenv('APPWRITE_ENDPOINT'))
+            ->setProject(getenv('APPWRITE_PROJECT_ID'))
+            ->setKey(getenv('APPWRITE_API_KEY'));
 
-        // Generate unique filename for storage
-        $newName = $pdfFile->getRandomName();
-        $uploadDir = WRITEPATH . 'uploads' . DIRECTORY_SEPARATOR . 'pdfs' . DIRECTORY_SEPARATOR;
+        $storage = new \Appwrite\Services\Storage($client);
 
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0777, true);
-        }
-
-        $uploadPath = $uploadDir . $newName;
-
-        if (!$pdfFile->move($uploadDir, $newName)) {
-            throw new \Exception('Failed to save PDF file');
+        // Identify file to upload to Appwrite
+        $inputFile = \Appwrite\InputFile::withPath($pdfFile->getTempName(), [
+            'filename' => $pdfFile->getClientName()
+        ]);
+        
+        // Upload to Appwrite Storage
+        try {
+            $uploadedFile = $storage->createFile(
+                getenv('APPWRITE_STORAGE_BUCKET_ID'),
+                \Appwrite\Id::unique(),
+                $inputFile
+            );
+            $appwriteFileId = $uploadedFile['$id'];
+        } catch (\Exception $e) {
+            log_message('error', 'Appwrite upload error: ' . $e->getMessage());
+            throw new \Exception('Failed to upload file to Appwrite storage');
         }
 
         // Save PDF metadata to database
         $pdfData = [
-            'pdf_id' => $this->generateUuid(), // UUID
+            'pdf_id' => $this->generateUuid(), // Internal Database UUID
             'user_id' => $user_id,
             'file_name' => $pdfFile->getClientName(),
-            'file_path' => $uploadPath,
+            'file_path' => $appwriteFileId, // Store Appwrite File ID here instead of local path
             'file_hash' => $fileHash,
             'file_size' => $pdfFile->getSize(),
             'processing_status' => 'pending',
@@ -111,12 +123,18 @@ class PdfController extends BaseController
 
         $pdfId = $this->pdfModel->insert($pdfData);
         if (!$pdfId) {
+            // Rollback Appwrite upload if DB insert fails
+            try {
+                $storage->deleteFile(getenv('APPWRITE_STORAGE_BUCKET_ID'), $appwriteFileId);
+            } catch (\Exception $rollbackEx) {
+                log_message('error', 'Failed to rollback Appwrite file: ' . $appwriteFileId);
+            }
             log_message('error', 'Failed to insert PDF metadata: ' . print_r($pdfData, true));
             throw new \Exception('Failed to save PDF metadata to database');
         }
 
-        // Trigger background processing
-        $this->sendToPythonProcessor($pdfData['pdf_id'], $uploadPath, $user_id);
+        // Trigger background processing - pass the Appwrite File ID
+        $this->sendToPythonProcessor($pdfData['pdf_id'], $appwriteFileId, $user_id);
 
         return $this->response->setJSON([
             'status' => 'success',
@@ -131,11 +149,6 @@ class PdfController extends BaseController
 
     } catch (\Exception $e) {
         log_message('error', 'PDF upload error: ' . $e->getMessage());
-
-        // Clean up uploaded file if error occurred
-        if (isset($uploadPath) && file_exists($uploadPath)) {
-            unlink($uploadPath);
-        }
 
         return $this->response->setJSON([
             'status' => 'error',
@@ -212,9 +225,19 @@ class PdfController extends BaseController
                 ])->setStatusCode(404);
             }
             
-            // Delete file from storage
-            if (file_exists($pdf->file_path)) {
-                unlink($pdf->file_path);
+            // Delete file from Appwrite storage
+            try {
+                $client = new \Appwrite\Client();
+                $client
+                    ->setEndpoint(getenv('APPWRITE_ENDPOINT'))
+                    ->setProject(getenv('APPWRITE_PROJECT_ID'))
+                    ->setKey(getenv('APPWRITE_API_KEY'));
+
+                $storage = new \Appwrite\Services\Storage($client);
+                $storage->deleteFile(getenv('APPWRITE_STORAGE_BUCKET_ID'), $pdf->file_path);
+            } catch (\Exception $ex) {
+                log_message('error', 'Failed to delete file from Appwrite: ' . $ex->getMessage());
+                // Still proceed to delete from DB even if Appwrite deletion fails to avoid orphaned DB records
             }
             
             // Delete from database (cascade will handle chunks and embeddings)
@@ -284,19 +307,32 @@ class PdfController extends BaseController
                 ])->setStatusCode(404);
             }
 
-            if (!file_exists($pdf->file_path)) {
+            // Initialize Appwrite Client to retrieve file
+            $client = new \Appwrite\Client();
+            $client
+                ->setEndpoint(getenv('APPWRITE_ENDPOINT'))
+                ->setProject(getenv('APPWRITE_PROJECT_ID'))
+                ->setKey(getenv('APPWRITE_API_KEY'));
+
+            $storage = new \Appwrite\Services\Storage($client);
+
+            try {
+                // Get the file for viewing
+                $fileContents = $storage->getFileDownload(getenv('APPWRITE_STORAGE_BUCKET_ID'), $pdf->file_path);
+                
+                // Set headers for PDF display
+                return $this->response
+                    ->setHeader('Content-Type', 'application/pdf')
+                    ->setHeader('Content-Disposition', 'inline; filename="' . $pdf->file_name . '"')
+                    ->setBody($fileContents);
+                    
+            } catch (\Exception $ex) {
+                log_message('error', 'Failed to download file from Appwrite: ' . $ex->getMessage());
                 return $this->response->setJSON([
                     'status' => 'error',
-                    'message' => 'PDF file not found on server'
+                    'message' => 'PDF file could not be retrieved from storage'
                 ])->setStatusCode(404);
             }
-
-            // Set headers for PDF display
-            return $this->response
-                ->setHeader('Content-Type', 'application/pdf')
-                ->setHeader('Content-Disposition', 'inline; filename="' . $pdf->file_name . '"')
-                ->setHeader('Content-Length', (string) filesize($pdf->file_path))
-                ->setBody(file_get_contents($pdf->file_path));
 
         } catch (\Exception $e) {
             log_message('error', 'View PDF error: ' . $e->getMessage());

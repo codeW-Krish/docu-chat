@@ -74,3 +74,4 @@ zstandard==0.25.0
 docx2txt
 pandas
 python-pptx
+appwrite==5.0.1

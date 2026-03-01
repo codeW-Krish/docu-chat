@@ -194,29 +194,64 @@ class DocumentProcessor:
         logger.info(f"Page {page_number} split into {len(chunk_objects)} chunks")
         return chunk_objects
     
-    def process_pdf(self, pdf_id, file_path, user_id):
-        """Main Document processing pipeline with transaction safety"""
+        import tempfile
+        from appwrite.client import Client
+        from appwrite.services.storage import Storage
+        
+        tmp_file_path = None
         conn = None
         try:
-            # Validate file exists
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"File not found: {file_path}")
-            
             logger.info(f"Starting document processing: {pdf_id} for user {user_id}")
             
-            # Determine file type and extract text
-            ext = os.path.splitext(file_path)[1].lower()
-            logger.info(f"Processing file: {file_path}, detected extension: {ext}")
+            # Initialize Appwrite client
+            client = Client()
+            client.set_endpoint(os.getenv('APPWRITE_ENDPOINT'))
+            client.set_project(os.getenv('APPWRITE_PROJECT_ID'))
+            client.set_key(os.getenv('APPWRITE_API_KEY'))
+            
+            storage = Storage(client)
+            bucket_id = os.getenv('APPWRITE_STORAGE_BUCKET_ID')
+            
+            # Here file_path actually contains the Appwrite File ID from PHP backend
+            file_id = file_path 
+            logger.info(f"Downloading file ID {file_id} from Appwrite bucket {bucket_id}")
+            
+            try:
+                # Download file contents from Appwrite
+                result = storage.get_file_download(bucket_id, file_id)
+                
+                # Try to get the file name/extension from Appwrite metadata, fallback to .pdf
+                try:
+                    meta = storage.get_file(bucket_id, file_id)
+                    original_name = meta['name']
+                    ext = os.path.splitext(original_name)[1].lower()
+                    if not ext:
+                        ext = '.pdf'
+                except Exception as meta_ex:
+                    logger.warning(f"Failed to get file metadata, defaulting to .pdf: {meta_ex}")
+                    ext = '.pdf'
+                
+                # Save to a temporary file locally
+                fd, tmp_file_path = tempfile.mkstemp(suffix=ext)
+                with os.fdopen(fd, 'wb') as f:
+                    f.write(result)
+                    
+            except Exception as e:
+                logger.error(f"Failed to download file from Appwrite: {e}")
+                raise FileNotFoundError(f"File ID {file_id} could not be downloaded from Appwrite")
+            
+            # Determine file type and extract text using the temp file
+            logger.info(f"Processing temporary file: {tmp_file_path}, detected extension: {ext}")
             if ext == '.pdf':
-                pages_data = self.extract_text_with_ocr(file_path)
+                pages_data = self.extract_text_with_ocr(tmp_file_path)
             elif ext == '.docx':
-                pages_data = self.extract_text_from_docx(file_path)
+                pages_data = self.extract_text_from_docx(tmp_file_path)
             elif ext == '.txt':
-                pages_data = self.extract_text_from_txt(file_path)
+                pages_data = self.extract_text_from_txt(tmp_file_path)
             elif ext == '.csv':
-                pages_data = self.extract_text_from_csv(file_path)
+                pages_data = self.extract_text_from_csv(tmp_file_path)
             elif ext == '.pptx':
-                pages_data = self.extract_text_from_pptx(file_path)
+                pages_data = self.extract_text_from_pptx(tmp_file_path)
             else:
                 raise ValueError(f"Unsupported file type: {ext}")
             
@@ -330,6 +365,14 @@ class DocumentProcessor:
             }
             
         finally:
+            # Cleanup temporary file
+            if tmp_file_path and os.path.exists(tmp_file_path):
+                try:
+                    os.remove(tmp_file_path)
+                    logger.info(f"Cleaned up temporary file: {tmp_file_path}")
+                except Exception as e:
+                    logger.error(f"Failed to cleanup temp file {tmp_file_path}: {e}")
+                    
             # Close connection
             if conn:
                 conn.close()

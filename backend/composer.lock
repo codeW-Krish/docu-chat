@@ -4,8 +4,50 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4e8c3259b8aa9583cd10ce11de4dfcbe",
+    "content-hash": "77b973ce2a65d05381e06a33ebc6082e",
     "packages": [
+        {
+            "name": "appwrite/appwrite",
+            "version": "20.2.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/appwrite/sdk-for-php.git",
+                "reference": "e946bb65fe259e4ec6eda7057e02c63995fc7692"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/appwrite/sdk-for-php/zipball/e946bb65fe259e4ec6eda7057e02c63995fc7692",
+                "reference": "e946bb65fe259e4ec6eda7057e02c63995fc7692",
+                "shasum": ""
+            },
+            "require": {
+                "ext-curl": "*",
+                "ext-json": "*",
+                "php": ">=8.0.0"
+            },
+            "require-dev": {
+                "mockery/mockery": "1.6.12",
+                "phpunit/phpunit": "^10"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Appwrite\\": "src/Appwrite"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "BSD-3-Clause"
+            ],
+            "description": "Appwrite is an open-source self-hosted backend server that abstracts and simplifies complex and repetitive development tasks behind a very simple REST API",
+            "support": {
+                "email": "team@appwrite.io",
+                "issues": "https://github.com/appwrite/sdk-for-php/issues",
+                "source": "https://github.com/appwrite/sdk-for-php/tree/20.2.0",
+                "url": "https://appwrite.io/support"
+            },
+            "time": "2026-02-19T11:59:59+00:00"
+        },
         {
             "name": "codeigniter4/framework",
             "version": "v4.6.3",

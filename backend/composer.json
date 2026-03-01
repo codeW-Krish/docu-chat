@@ -11,6 +11,7 @@
     },
     "require": {
         "php": "^8.1",
+        "appwrite/appwrite": "^20.2",
         "codeigniter4/framework": "^4.0",
         "firebase/php-jwt": "^6.11"
     },
