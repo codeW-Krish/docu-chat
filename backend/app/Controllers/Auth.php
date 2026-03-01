@@ -608,7 +608,7 @@ class Auth extends BaseController
              ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
              ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
              ->setHeader('Access-Control-Allow-Credentials', 'true');
-
+             
             return $this->response->setJSON([
                 'status' => 'error',
                 'message' => 'Invalid or expired token'
@@ -618,7 +618,23 @@ class Auth extends BaseController
 
     private function sendEmail($to, $subject, $message, &$debugger = null)
     {
+        $config = [
+            'protocol'  => 'smtp',
+            'SMTPHost'  => 'smtp.gmail.com',
+            'SMTPUser'  => getenv('SMTP_USER'),
+            'SMTPPass'  => getenv('SMTP_PASS'),
+            'SMTPPort'  => 587,
+            'SMTPCrypto'=> 'tls',
+            'mailType'  => 'text',
+            'charset'   => 'utf-8',
+            'wordWrap'  => true,
+            'newline'   => "\r\n",
+            'CRLF'      => "\r\n"
+        ];
+        
         $email = \Config\Services::email();
+        $email->initialize($config);
+        
         $email->setFrom(getenv('SMTP_USER'), 'AI DocuChat');
         $email->setTo($to);
         $email->setSubject($subject);
