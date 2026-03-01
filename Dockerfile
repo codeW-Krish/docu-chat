@@ -32,9 +32,10 @@ RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
 # Allow .htaccess overrides
 RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
 
-# Listen on PORT env variable (Railway sets this)
-RUN sed -i 's/Listen 80/Listen ${PORT}/' /etc/apache2/ports.conf
-RUN sed -i 's/:80/:${PORT}/' /etc/apache2/sites-available/000-default.conf
+# Listen on PORT env variable (Railway sets this) - substituted at runtime
+# Keep build-time config at port 80, replace at container start
+RUN sed -i 's/Listen 80/Listen __PORT__/' /etc/apache2/ports.conf
+RUN sed -i 's/:80/:__PORT__/' /etc/apache2/sites-available/000-default.conf
 
 # ---- Install Composer ----
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -53,6 +54,6 @@ RUN mkdir -p writable/cache writable/logs writable/session writable/uploads writ
 # ---- Environment defaults ----
 ENV CI_ENVIRONMENT=production
 
-# Expose port and start Apache
+# Expose port and start Apache - substitute PORT at runtime
 EXPOSE ${PORT:-8080}
-CMD ["apache2-foreground"]
+CMD ["sh", "-c", "sed -i \"s/__PORT__/${PORT:-8080}/g\" /etc/apache2/ports.conf /etc/apache2/sites-available/000-default.conf && apache2-foreground"]
