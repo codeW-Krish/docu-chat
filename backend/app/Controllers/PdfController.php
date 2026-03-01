@@ -133,7 +133,17 @@ class PdfController extends BaseController
         ];
 
         // 2. Early Response to avoid 100s fastcgi timeout on 12MB uploads
-        ob_clean();
+        // Since we bypass CodeIgniter's After-Filter, we MUST manually inject CORS headers
+        $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '*';
+        header('Access-Control-Allow-Origin: ' . $origin);
+        header('Access-Control-Allow-Credentials: true');
+        header('Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+        
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        
         header("Connection: close");
         ignore_user_abort(true);
         ob_start();
@@ -141,8 +151,8 @@ class PdfController extends BaseController
         $size = ob_get_length();
         header("Content-Length: $size");
         header('Content-Type: application/json');
-        ob_end_flush();
-        flush();
+        @ob_end_flush();
+        @flush();
         
         if (function_exists('fastcgi_finish_request')) {
             fastcgi_finish_request();
