@@ -365,16 +365,12 @@ class Auth extends BaseController
         $regToken = JWTLib::encode($regPayload, $this->jwt->key, $this->jwt->algorithm);
 
       
-        if (!$this->sendEmail($data['email'], 'Verify your account', "Your verification code is: $otp")) {
-             // Add CORS headers
-             $this->response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-             ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-             ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-             ->setHeader('Access-Control-Allow-Credentials', 'true');
-
+        $emailDebugger = '';
+        if (!$this->sendEmail($data['email'], 'Verify your account', "Your verification code is: $otp", $emailDebugger)) {
             return $this->response->setJSON([
                 'status' => 'error',
-                'message' => 'Failed to send verification email'
+                'message' => 'Failed to send verification email',
+                'debug' => $emailDebugger
             ])->setStatusCode(500);
         }
 
@@ -620,14 +616,20 @@ class Auth extends BaseController
         }
     }
 
-    private function sendEmail($to, $subject, $message)
+    private function sendEmail($to, $subject, $message, &$debugger = null)
     {
         $email = \Config\Services::email();
         $email->setFrom(getenv('SMTP_USER'), 'AI DocuChat');
         $email->setTo($to);
         $email->setSubject($subject);
         $email->setMessage($message);
-        return $email->send();
+        
+        if ($email->send()) {
+            return true;
+        }
+        
+        $debugger = $email->printDebugger();
+        return false;
     }
 
     // --------------------------------------------------------------------
