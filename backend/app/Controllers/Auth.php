@@ -579,10 +579,6 @@ class Auth extends BaseController
     private function sendEmail($to, $subject, $message, &$debugger = null)
     {
         $email = \Config\Services::email();
-        $email->setFrom('krishbca932006@gmail.com', 'AI DocuChat'); 
-        $email->setTo($to);
-        $email->setSubject($subject);
-        $email->setMessage($message);
 
         // --- ATTEMPT 1: RESEND ---
         $resendUser = getenv('RESEND_SMTP_USER');
@@ -605,18 +601,17 @@ class Auth extends BaseController
             
             $email->initialize($configResend);
             
+            // Set headers AFTER initialization so they don't get cleared
+            $email->setFrom('onboarding@resend.dev', 'AI DocuChat'); // Resend requires verified domain, use their sandbox default if not verified
+            $email->setTo($to);
+            $email->setSubject($subject);
+            $email->setMessage($message);
+            
             if ($email->send()) {
                 return true;
             }
             $debugger = "Resend Failed: " . $email->printDebugger();
         }
-
-        // Must clear the email state before re-initializing
-        $email->clear();
-        $email->setFrom('krishbca932006@gmail.com', 'AI DocuChat'); 
-        $email->setTo($to);
-        $email->setSubject($subject);
-        $email->setMessage($message);
 
         // --- ATTEMPT 2: BREVO FALLBACK ---
         $brevoUser = getenv('BREVO_SMTP_USER');
@@ -629,7 +624,7 @@ class Auth extends BaseController
                 'SMTPUser'  => $brevoUser,
                 'SMTPPass'  => $brevoPass,
                 'SMTPPort'  => 587,
-                'SMTPCrypto'=> 'tls', // Brevo uses 587 TLS
+                'SMTPCrypto'=> 'tls',
                 'mailType'  => 'text',
                 'charset'   => 'utf-8',
                 'wordWrap'  => true,
@@ -637,7 +632,15 @@ class Auth extends BaseController
                 'CRLF'      => "\r\n"
             ];
             
+            // Initialize will automatically clear the previous state
             $email->initialize($configBrevo);
+            
+            // Set headers AFTER initialization
+            // Note: Brevo requires the sender email to be the one verified in their dashboard
+            $email->setFrom('krishbca932006@gmail.com', 'AI DocuChat'); 
+            $email->setTo($to);
+            $email->setSubject($subject);
+            $email->setMessage($message);
             
             if ($email->send()) {
                 return true;
