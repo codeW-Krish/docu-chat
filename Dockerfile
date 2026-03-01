@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
 RUN docker-php-ext-install pdo pgsql pdo_pgsql curl zip intl
 
 # ---- Apache Config ----
-RUN a2enmod rewrite headers
+RUN a2dismod mpm_event mpm_worker 2>/dev/null; a2enmod mpm_prefork rewrite headers
 
 # Set document root to CodeIgniter's public folder
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/backend/public
@@ -50,9 +50,13 @@ COPY backend/ .
 RUN mkdir -p writable/cache writable/logs writable/session writable/uploads writable/debugbar \
     && chmod -R 777 writable
 
+# ---- Entrypoint script ----
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # ---- Environment defaults ----
 ENV CI_ENVIRONMENT=production
 
-# Expose port and start Apache - configure port at runtime
+# Expose port and start Apache via entrypoint
 EXPOSE ${PORT:-8080}
-CMD ["sh", "-c", "echo \"Listen ${PORT:-8080}\" > /etc/apache2/ports.conf && echo \"<VirtualHost *:${PORT:-8080}>\n\tServerAdmin webmaster@localhost\n\tDocumentRoot /var/www/html/backend/public\n\tErrorLog \\${APACHE_LOG_DIR}/error.log\n\tCustomLog \\${APACHE_LOG_DIR}/access.log combined\n</VirtualHost>\" > /etc/apache2/sites-available/000-default.conf && apache2-foreground"]
+CMD ["/usr/local/bin/docker-entrypoint.sh"]
