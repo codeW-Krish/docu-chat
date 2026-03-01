@@ -89,9 +89,9 @@ export function PdfViewer({ pdf, highlightedReference, onPageChange }: PdfViewer
   const file = useMemo(() => {
     if (!token || !pdf) return null;
     // ensure no double slashes if the env var has trailing slash
-    const apiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api').replace(/\/$/, "");
+    const baseUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080').replace(/\/$/, "");
     return {
-      url: `${apiUrl}/pdfs/${pdf.pdf_id}/view`,
+      url: `${baseUrl}/api/pdfs/${pdf.pdf_id}/view`,
       httpHeaders: { Authorization: `Bearer ${token}` },
       withCredentials: true
     };
