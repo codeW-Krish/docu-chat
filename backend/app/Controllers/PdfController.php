@@ -195,6 +195,195 @@ class PdfController extends BaseController
     }
 }
 
+    public function uploadChunk()
+    {
+        set_time_limit(0);
+        
+        try {
+            if (isset($this->request->user->user_id)) {
+                $user_id = $this->request->user->user_id;
+            } else {
+                $user_id = $this->request->getPost('user_id');
+            }
+            
+            if (empty($user_id)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'User ID is required'
+                ])->setStatusCode(400);
+            }
+
+            $chunkFile = $this->request->getFile('file');
+            $chunkIndex = (int) $this->request->getPost('chunk_index');
+            $totalChunks = (int) $this->request->getPost('total_chunks');
+            $fileId = $this->request->getPost('file_id');
+            $fileName = $this->request->getPost('file_name');
+            $mimeType = $this->request->getPost('file_type');
+
+            if (!$chunkFile || !$chunkFile->isValid() || empty($fileId)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Invalid chunk data'
+                ])->setStatusCode(400);
+            }
+
+            // Create chunks directory if not exists
+            $chunkDir = WRITEPATH . 'uploads/chunks/';
+            if (!is_dir($chunkDir)) {
+                mkdir($chunkDir, 0777, true);
+            }
+
+            $tempFilePath = $chunkDir . $fileId . '.part';
+
+            // Append chunk to the temp file
+            $chunkData = file_get_contents($chunkFile->getTempName());
+            file_put_contents($tempFilePath, $chunkData, FILE_APPEND);
+
+            // If not the last chunk, return success for this chunk
+            if ($chunkIndex < $totalChunks - 1) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => 'Chunk uploaded successfully',
+                    'chunk_index' => $chunkIndex
+                ]);
+            }
+
+            // --- FINAL CHUNK PROCESSING ---
+            
+            // Check file type
+            $allowedMimes = [
+                'application/pdf',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'text/plain',
+                'text/csv',
+                'application/csv',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+            ];
+
+            if (!in_array($mimeType, $allowedMimes)) {
+                @unlink($tempFilePath);
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Invalid file type. Allowed types: PDF, DOCX, PPTX, TXT, CSV'
+                ])->setStatusCode(400);
+            }
+
+            // Check for duplicates
+            $fileHash = hash_file('sha256', $tempFilePath);
+            $existingPdf = $this->pdfModel
+                                ->where('user_id', $user_id)
+                                ->where('file_hash', $fileHash)
+                                ->first();
+
+            if ($existingPdf) {
+                @unlink($tempFilePath);
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'PDF already exists',
+                    'data' => [
+                        'pdf_id' => $existingPdf->pdf_id,
+                        'file_name' => $existingPdf->file_name
+                    ]
+                ])->setStatusCode(400);
+            }
+
+            // Initialize Appwrite Client
+            $client = new \Appwrite\Client();
+            $client
+                ->setEndpoint(getenv('APPWRITE_ENDPOINT'))
+                ->setProject(getenv('APPWRITE_PROJECT_ID'))
+                ->setKey(getenv('APPWRITE_API_KEY'))
+                ->setTimeout(600);
+
+            $storage = new \Appwrite\Services\Storage($client);
+
+            // Identify file
+            $inputFile = \Appwrite\InputFile::withPath($tempFilePath, $mimeType, $fileName);
+            $appwriteFileId = \Appwrite\ID::unique();
+            $pdfId = $this->generateUuid();
+
+            $pdfData = [
+                'pdf_id' => $pdfId, 
+                'user_id' => $user_id,
+                'file_name' => $fileName,
+                'file_path' => $appwriteFileId, 
+                'file_hash' => $fileHash,
+                'file_size' => filesize($tempFilePath),
+                'processing_status' => 'pending',
+                'page_count' => 0, 
+                'uploaded_at' => date('Y-m-d H:i:s')
+            ];
+
+            if (!$this->pdfModel->insert($pdfData)) {
+                @unlink($tempFilePath);
+                throw new \Exception('Failed to save PDF metadata to database');
+            }
+
+            // 1. Prepare JSON Response (Status: pending)
+            $responseData = [
+                'status' => 'success',
+                'message' => 'PDF uploaded successfully. Processing started.',
+                'data' => [
+                    'pdf_id' => $pdfData['pdf_id'],
+                    'file_name' => $pdfData['file_name'],
+                    'file_size' => $pdfData['file_size'],
+                    'processing_status' => 'pending'
+                ]
+            ];
+
+            // Early Response
+            $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '*';
+            header('Access-Control-Allow-Origin: ' . $origin);
+            header('Access-Control-Allow-Credentials: true');
+            header('Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE');
+            header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+            
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+            
+            header("Connection: close");
+            ignore_user_abort(true);
+            ob_start();
+            echo json_encode($responseData);
+            $size = ob_get_length();
+            header("Content-Length: $size");
+            header('Content-Type: application/json');
+            @ob_end_flush();
+            @flush();
+            
+            if (function_exists('fastcgi_finish_request')) {
+                fastcgi_finish_request();
+            }
+
+            // BACKGROUND TASKS
+            try {
+                $storage->createFile(
+                    getenv('APPWRITE_STORAGE_BUCKET_ID'),
+                    $appwriteFileId,
+                    $inputFile
+                );
+
+                $this->sendToPythonProcessor($pdfData['pdf_id'], $appwriteFileId, $user_id);
+                $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'completed');
+            } catch (\Exception $bgEx) {
+                log_message('error', 'Background Python processing error: ' . $bgEx->getMessage());
+                $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'failed');
+            }
+
+            // Cleanup temp file
+            @unlink($tempFilePath);
+            return;
+
+        } catch (\Exception $e) {
+            log_message('error', 'Chunk upload error: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Upload failed: ' . $e->getMessage()
+            ])->setStatusCode(500);
+        }
+    }
+
     
     public function getUserPdfs()
     {

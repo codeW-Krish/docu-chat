@@ -525,6 +525,78 @@ class ApiClient {
     });
   }
 
+  async uploadPdfChunked(
+    file: File,
+    onProgress?: (progress: number) => void
+  ): Promise<{ pdf: any; message: string }> {
+    const url = `${this.baseUrl}/api/pdfs/upload-chunk`;
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+    // Generate a unique file ID for this upload session
+    const fileId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    const chunkSize = 2 * 1024 * 1024; // 2MB
+    const totalChunks = Math.ceil(file.size / chunkSize);
+
+    let currentChunk = 0;
+
+    return new Promise(async (resolve, reject) => {
+      while (currentChunk < totalChunks) {
+        const start = currentChunk * chunkSize;
+        const end = Math.min(start + chunkSize, file.size);
+        const chunk = file.slice(start, end);
+
+        const formData = new FormData();
+        formData.append("file", chunk);
+        formData.append("chunk_index", currentChunk.toString());
+        formData.append("total_chunks", totalChunks.toString());
+        formData.append("file_id", fileId);
+        formData.append("file_name", file.name);
+        formData.append("file_type", file.type);
+
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              ...(token ? { "Authorization": `Bearer ${token}` } : {})
+            },
+            body: formData
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Upload failed: ${response.status} ${errorText}`);
+          }
+
+          const data = await response.json();
+
+          if (data.status === 'error') {
+            throw new Error(data.message || 'Chunk upload failed');
+          }
+
+          // Calculate overall progress across all chunks
+          if (onProgress) {
+            const progress = ((currentChunk + 1) / totalChunks) * 100;
+            onProgress(progress);
+          }
+
+          // If it's the last chunk, it will return the pending status and pdf data
+          if (currentChunk === totalChunks - 1) {
+            resolve({
+              pdf: data.data,
+              message: data.message || "Upload successful"
+            });
+            return;
+          }
+
+          currentChunk++;
+        } catch (error) {
+          reject(error);
+          return;
+        }
+      }
+    });
+  }
+
 
   async getPdfs(): Promise<{ pdfs: PdfFile[] }> {
     const response = await this.request<ApiResponse<PdfFile[]>>('/api/pdfs');

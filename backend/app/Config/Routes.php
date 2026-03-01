@@ -48,6 +48,7 @@ $routes->group('', ['filter' => 'cors'], static function($routes) {
 $routes->group('api', ['filter' => ['cors', 'jwtauth']], static function($routes) { // Add cors filter here too
     // PDF routes
     $routes->post('pdfs/upload', [PdfController::class, 'upload']);
+    $routes->post('pdfs/upload-chunk', [PdfController::class, 'uploadChunk']);
     $routes->get('pdfs', [PdfController::class, 'getUserPdfs']);
     $routes->get('pdfs/(:segment)', [PdfController::class, 'getPdfStatus/$1']);
     $routes->get('pdfs/(:segment)/view', [PdfController::class, 'viewPdf/$1']);

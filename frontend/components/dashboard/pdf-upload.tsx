@@ -65,7 +65,7 @@ export function PdfUpload() {
           // Fire-and-forget upload for this item
           ; (async () => {
             try {
-              const result = await api.uploadPdf(item.file, (progress) => {
+              const result = await api.uploadPdfChunked(item.file, (progress) => {
                 setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, progress: progress * 0.5 } : qi)) // Upload is first 50%
               })
 
