@@ -22,6 +22,9 @@ class PdfController extends BaseController
     
     public function upload()
 {
+    // Prevent PHP fatal timeouts from AI processing delays
+    set_time_limit(0);
+    
     try {
      // Get user_id from JWT token (preferred) or fallback to form data
         if (isset($this->request->user->user_id)) {
