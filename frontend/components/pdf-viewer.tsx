@@ -88,8 +88,9 @@ export function PdfViewer({ pdf, highlightedReference, onPageChange }: PdfViewer
 
   const file = useMemo(() => {
     if (!token || !pdf) return null;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
     return {
-      url: `http://localhost:8080/api/pdfs/${pdf.pdf_id}/view`,
+      url: `${apiUrl}/pdfs/${pdf.pdf_id}/view`,
       httpHeaders: { Authorization: `Bearer ${token}` },
       withCredentials: true
     };
