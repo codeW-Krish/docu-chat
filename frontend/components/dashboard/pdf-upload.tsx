@@ -62,22 +62,61 @@ export function PdfUpload() {
         activeUploads.current++
         started++
 
-        // Fire-and-forget upload for this item
-        ;(async () => {
-          try {
-            await api.uploadPdf(item.file, (progress) => {
-              setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, progress } : qi))
-            })
-            setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'success' as const, progress: 100, message: 'Uploaded' } : qi))
-            window.dispatchEvent(new Event("pdfUploaded"))
-          } catch (error: any) {
-            setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'error' as const, progress: 100, message: error.message || 'Upload failed' } : qi))
-          } finally {
-            activeUploads.current--
-            // Trigger next in queue
-            processQueue()
-          }
-        })()
+          // Fire-and-forget upload for this item
+          ; (async () => {
+            try {
+              const result = await api.uploadPdf(item.file, (progress) => {
+                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, progress: progress * 0.5 } : qi)) // Upload is first 50%
+              })
+
+              // If the backend says it's processing in the background, we need to poll
+              if (result.pdf && (result.pdf.processing_status === 'pending' || result.pdf.processing_status === 'processing')) {
+                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, progress: 50, message: 'Processing AI...' } : qi))
+
+                // Poll every 5 seconds
+                const pollInterval = setInterval(async () => {
+                  try {
+                    const statusResult = await api.getPdfStatus(result.pdf.pdf_id)
+
+                    if (statusResult.pdf.processing_status === 'completed') {
+                      clearInterval(pollInterval)
+                      setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'success' as const, progress: 100, message: 'Done' } : qi))
+                      window.dispatchEvent(new Event("pdfUploaded"))
+                      activeUploads.current--
+                      processQueue()
+                    } else if (statusResult.pdf.processing_status === 'failed') {
+                      clearInterval(pollInterval)
+                      setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'error' as const, progress: 100, message: 'AI Processing failed' } : qi))
+                      activeUploads.current--
+                      processQueue()
+                    } else {
+                      // Still processing, maybe slowly increase progress bar artificially
+                      setQueue(q => q.map(qi => {
+                        if (qi.id === item.id && qi.progress < 95) {
+                          return { ...qi, progress: qi.progress + 5 }
+                        }
+                        return qi
+                      }))
+                    }
+                  } catch (pollErr) {
+                    // Ignore minor poll network errors and keep trying
+                  }
+                }, 5000)
+
+              } else {
+                // It finished synchronously
+                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'success' as const, progress: 100, message: 'Uploaded' } : qi))
+                window.dispatchEvent(new Event("pdfUploaded"))
+                activeUploads.current--
+                processQueue()
+              }
+
+            } catch (error: any) {
+              setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'error' as const, progress: 100, message: error.message || 'Upload failed' } : qi))
+              activeUploads.current--
+              processQueue()
+            }
+          })()
       }
 
       return started > 0 ? current : prev

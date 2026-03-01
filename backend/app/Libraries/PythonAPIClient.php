@@ -20,36 +20,7 @@ public function processPdf($pdfId, $pdfPath, $userId)
         'user_id' => $userId
     ];
     
-    // Execute asynchronously (fire and forget) so Vercel does not timeout
-    $this->sendAsyncRequest($url, $postData);
-    
-    // Return mock success immediately since processing happens in the background
-    return ['status' => 'success', 'message' => 'Processing started asynchronously'];
-}
-
-private function sendAsyncRequest($url, $data)
-{
-    // Initialize cURL for a non-blocking request
-    $ch = curl_init();
-    $jsonData = json_encode($data);
-    
-    curl_setopt_array($ch, [
-        CURLOPT_URL => $url,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $jsonData,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Content-Length: ' . strlen($jsonData)
-        ],
-        CURLOPT_RETURNTRANSFER => true,
-        // Set extremely short timeouts so curl disconnects immediately after sending
-        // The Python server will continue processing the request even after PHP drops it
-        CURLOPT_TIMEOUT_MS => 500,
-        CURLOPT_NOSIGNAL => 1
-    ]);
-    
-    curl_exec($ch);
-    curl_close($ch);
+    return $this->sendRequest($url, $postData, false);
 }
     
     public function chat($question, $pdfIds, $userId, $sessionId = null)

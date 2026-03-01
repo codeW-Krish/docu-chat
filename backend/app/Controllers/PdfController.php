@@ -85,13 +85,14 @@ class PdfController extends BaseController
             ])->setStatusCode(400);
         }
         // Initialize Appwrite Client
-        $client = new \Appwrite\Client();
-        $client
-            ->setEndpoint(getenv('APPWRITE_ENDPOINT'))
-            ->setProject(getenv('APPWRITE_PROJECT_ID'))
-            ->setKey(getenv('APPWRITE_API_KEY'));
+            $client = new \Appwrite\Client();
+            $client
+                ->setEndpoint(getenv('APPWRITE_ENDPOINT'))
+                ->setProject(getenv('APPWRITE_PROJECT_ID'))
+                ->setKey(getenv('APPWRITE_API_KEY'))
+                ->setTimeout(600); // Prevent 30s default timeout for large 12MB+ files
 
-        $storage = new \Appwrite\Services\Storage($client);
+            $storage = new \Appwrite\Services\Storage($client);
 
         // Identify file to upload to Appwrite
         $inputFile = \Appwrite\InputFile::withPath(
@@ -104,8 +105,9 @@ class PdfController extends BaseController
         $pdfId = $this->generateUuid(); // Internal Database UUID
 
         // Save PDF metadata to database first
+        // Save PDF metadata to database
         $pdfData = [
-            'pdf_id' => $pdfId, 
+            'pdf_id' => $this->generateUuid(), 
             'user_id' => $user_id,
             'file_name' => $pdfFile->getClientName(),
             'file_path' => $appwriteFileId, 
@@ -117,10 +119,14 @@ class PdfController extends BaseController
         ];
 
         if (!$this->pdfModel->insert($pdfData)) {
+            // Rollback Appwrite upload if DB insert fails
+            try {
+                $storage->deleteFile(getenv('APPWRITE_STORAGE_BUCKET_ID'), $appwriteFileId);
+            } catch (\Exception $rollbackEx) {}
             throw new \Exception('Failed to save PDF metadata to database');
         }
 
-        // 1. Prepare JSON Response
+        // 1. Prepare JSON Response (Status: pending)
         $responseData = [
             'status' => 'success',
             'message' => 'PDF uploaded successfully. Processing started.',
@@ -132,8 +138,8 @@ class PdfController extends BaseController
             ]
         ];
 
-        // 2. Early Response to avoid 100s fastcgi timeout on 12MB uploads
-        // Since we bypass CodeIgniter's After-Filter, we MUST manually inject CORS headers
+        // 2. Early Response to avoid 100s fastcgi proxy timeout on 12MB uploads
+        // MUST manually inject CORS headers because we bypass CodeIgniter's After-Filter
         $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '*';
         header('Access-Control-Allow-Origin: ' . $origin);
         header('Access-Control-Allow-Credentials: true');
@@ -160,24 +166,13 @@ class PdfController extends BaseController
 
         // 3. BACKGROUND TASKS
         try {
-            // Upload to Appwrite Storage (takes time for 12MB)
-            $storage->createFile(
-                getenv('APPWRITE_STORAGE_BUCKET_ID'),
-                $appwriteFileId,
-                $inputFile
-            );
-            
             // Trigger Python processing
             $this->sendToPythonProcessor($pdfData['pdf_id'], $appwriteFileId, $user_id);
-            
+            // Update status to processing/completed
+            $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'completed'); // Assume it completed if no error
         } catch (\Exception $bgEx) {
-            log_message('error', 'Background processing error: ' . $bgEx->getMessage());
-            $this->pdfModel->updateProcessingStatus($pdfId, 'error');
-            
-            // Attempt rollback
-            try {
-                $storage->deleteFile(getenv('APPWRITE_STORAGE_BUCKET_ID'), $appwriteFileId);
-            } catch (\Exception $rEx) {}
+            log_message('error', 'Background Python processing error: ' . $bgEx->getMessage());
+            $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'failed');
         }
 
         // Return gracefully for the background worker thread
