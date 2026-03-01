@@ -344,64 +344,111 @@ class Auth extends BaseController
             ])->setStatusCode(400);
         }
 
-        // ==========================================
-        // BYPASS OTP FOR NOW: Directly create user
-        // ==========================================
+        // 2. Generate OTP
+        $otp = (string) random_int(100000, 999999);
         
-        // 2. Check if user already exists
-        if ($this->userModel->where('email', $data['email'])->first()) {
-            return $this->response->setJSON([
-                'status' => 'error',
-                'message' => 'Email already registered'
-            ])->setStatusCode(400);
-        }
+        // 3. Hash sensitive data
+        $otpHash = password_hash($otp, PASSWORD_DEFAULT);
+        $passwordHash = password_hash($data['password'], PASSWORD_DEFAULT);
 
-        // 3. Create User immediately
-        $userData = [
-            'user_id' => $this->generateUuid(),
+        $regPayload = [
+            'type' => 'registration',
+            'name' => $data['name'],
             'email' => $data['email'],
-            'password_hash' => password_hash($data['password'], PASSWORD_DEFAULT),
-            'name' => $data['name']
+            'password_hash' => $passwordHash,
+            'otp_hash' => $otpHash,
+            'iat' => time(),
+            'exp' => time() + (15 * 60) 
         ];
 
-        try {
-            $this->userModel->insert($userData);
-        } catch (\Exception $e) {
+        $regToken = JWTLib::encode($regPayload, $this->jwt->key, $this->jwt->algorithm);
+
+        $emailDebugger = '';
+        if (!$this->sendEmail($data['email'], 'Verify your account', "Your verification code is: $otp", $emailDebugger)) {
             return $this->response->setJSON([
                 'status' => 'error',
-                'message' => 'Failed to create user account'
+                'message' => 'Failed to send verification email (Both providers failed)',
+                'debug' => $emailDebugger
             ])->setStatusCode(500);
         }
 
-        // 4. Generate Login Tokens immediately
-        $tokens = $this->generateTokens($userData['user_id']);
-
         return $this->response->setJSON([
             'status' => 'success',
-            'message' => 'Registration successful', 
+            'message' => 'Verification code sent',
             'data' => [
-                'registration_token' => 'bypassed',
-                'tokens' => $tokens,
-                'user' => [
-                    'user_id' => $userData['user_id'],
-                    'email' => $userData['email'],
-                    'name' => $userData['name']
-                ]
+                'registration_token' => $regToken
             ]
         ]);
     }
 
     public function registerComplete()
     {
-        // ==========================================
-        // BYPASS OTP FOR NOW: This is just a stub
-        // because the user is already created in registerInit
-        // ==========================================
-        
-        return $this->response->setJSON([
-            'status' => 'success',
-            'message' => 'Registration completed via bypass.'
-        ]);
+        $data = $this->request->getJSON(true);
+        $otp = $data['otp'] ?? '';
+        $regToken = $data['registration_token'] ?? '';
+
+        if (!$otp || !$regToken) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Missing OTP or token'
+            ])->setStatusCode(400);
+        }
+
+        try {
+            // 1. Verify JWT
+            $decoded = JWTLib::decode($regToken, new Key($this->jwt->key, $this->jwt->algorithm));
+            
+            if ($decoded->type !== 'registration') {
+                throw new \Exception('Invalid token type');
+            }
+
+            // 2. Verify OTP
+            if (!password_verify($otp, $decoded->otp_hash)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Invalid verification code'
+                ])->setStatusCode(400);
+            }
+
+            // 3. Create User (Double check email uniqueness just in case)
+            if ($this->userModel->where('email', $decoded->email)->first()) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Email already registered'
+                ])->setStatusCode(400);
+            }
+
+            $userData = [
+                'user_id' => $this->generateUuid(),
+                'email' => $decoded->email,
+                'password_hash' => $decoded->password_hash,
+                'name' => $decoded->name
+            ];
+
+            $this->userModel->insert($userData);
+
+            // 4. Generate Login Tokens
+            $tokens = $this->generateTokens($userData['user_id']);
+
+            return $this->response->setJSON([
+                'status' => 'success',
+                'message' => 'Registration successful',
+                'data' => [
+                    'tokens' => $tokens,
+                    'user' => [
+                        'user_id' => $userData['user_id'],
+                        'email' => $userData['email'],
+                        'name' => $userData['name']
+                    ]
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Invalid or expired session'
+            ])->setStatusCode(400);
+        }
     }
 
     // --------------------------------------------------------------------
@@ -531,33 +578,73 @@ class Auth extends BaseController
 
     private function sendEmail($to, $subject, $message, &$debugger = null)
     {
-        $config = [
-            'protocol'  => 'smtp',
-            'SMTPHost'  => 'ssl://smtp.gmail.com',
-            'SMTPUser'  => getenv('SMTP_USER'),
-            'SMTPPass'  => getenv('SMTP_PASS'),
-            'SMTPPort'  => 465,
-            'SMTPCrypto'=> 'ssl',
-            'mailType'  => 'text',
-            'charset'   => 'utf-8',
-            'wordWrap'  => true,
-            'newline'   => "\r\n",
-            'CRLF'      => "\r\n"
-        ];
-        
         $email = \Config\Services::email();
-        $email->initialize($config);
-        
-        $email->setFrom(getenv('SMTP_USER'), 'AI DocuChat');
+        $email->setFrom('krishbca932006@gmail.com', 'AI DocuChat'); 
         $email->setTo($to);
         $email->setSubject($subject);
         $email->setMessage($message);
+
+        // --- ATTEMPT 1: RESEND ---
+        $resendUser = getenv('RESEND_SMTP_USER');
+        $resendPass = getenv('RESEND_SMTP_PASS');
         
-        if ($email->send()) {
-            return true;
+        if (!empty($resendUser) && !empty($resendPass)) {
+            $configResend = [
+                'protocol'  => 'smtp',
+                'SMTPHost'  => 'smtp.resend.com',
+                'SMTPUser'  => $resendUser,
+                'SMTPPass'  => $resendPass,
+                'SMTPPort'  => 465,
+                'SMTPCrypto'=> 'ssl',
+                'mailType'  => 'text',
+                'charset'   => 'utf-8',
+                'wordWrap'  => true,
+                'newline'   => "\r\n",
+                'CRLF'      => "\r\n"
+            ];
+            
+            $email->initialize($configResend);
+            
+            if ($email->send()) {
+                return true;
+            }
+            $debugger = "Resend Failed: " . $email->printDebugger();
+        }
+
+        // Must clear the email state before re-initializing
+        $email->clear();
+        $email->setFrom('krishbca932006@gmail.com', 'AI DocuChat'); 
+        $email->setTo($to);
+        $email->setSubject($subject);
+        $email->setMessage($message);
+
+        // --- ATTEMPT 2: BREVO FALLBACK ---
+        $brevoUser = getenv('BREVO_SMTP_USER');
+        $brevoPass = getenv('BREVO_SMTP_PASS');
+        
+        if (!empty($brevoUser) && !empty($brevoPass)) {
+            $configBrevo = [
+                'protocol'  => 'smtp',
+                'SMTPHost'  => 'smtp-relay.brevo.com',
+                'SMTPUser'  => $brevoUser,
+                'SMTPPass'  => $brevoPass,
+                'SMTPPort'  => 587,
+                'SMTPCrypto'=> 'tls', // Brevo uses 587 TLS
+                'mailType'  => 'text',
+                'charset'   => 'utf-8',
+                'wordWrap'  => true,
+                'newline'   => "\r\n",
+                'CRLF'      => "\r\n"
+            ];
+            
+            $email->initialize($configBrevo);
+            
+            if ($email->send()) {
+                return true;
+            }
+            $debugger .= " | Brevo Failed: " . $email->printDebugger();
         }
         
-        $debugger = $email->printDebugger();
         return false;
     }
 
