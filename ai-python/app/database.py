@@ -11,12 +11,12 @@ def get_db_connection():
     """Get connection to Neon PostgreSQL database with pgvector"""
     try:
         conn = psycopg2.connect(
-            host=os.getenv('DB_HOST'),
-            database=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-            port=os.getenv('DB_PORT', 5432),
-            sslmode=os.getenv('SSLMODE', 'require')
+            host=os.getenv('DB_HOST', '').strip(),
+            database=os.getenv('DB_NAME', '').strip(),
+            user=os.getenv('DB_USER', '').strip(),
+            password=os.getenv('DB_PASSWORD', '').strip(),
+            port=os.getenv('DB_PORT', '5432').strip(),
+            sslmode=os.getenv('SSLMODE', 'require').strip()
             # options=f"-c endpoint={os.getenv('ENDPOINT')}"
         )
     
