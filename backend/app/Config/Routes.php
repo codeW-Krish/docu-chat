@@ -14,6 +14,10 @@ $routes->get('public/health', function() {
     return service('response')->setJSON(['status' => 'healthy', 'service' => 'PHP Backend']);
 });
 
+$routes->options('(:any)', function() {
+    return service('response')->setStatusCode(204);
+});
+
 $routes->get('/', [Home::class, 'index']);
 $routes->get('public/test-python-quick', [PdfController::class, 'testPythonQuick']);
 $routes->get('public/test-db', [ChatController::class, 'testDatabase']);
