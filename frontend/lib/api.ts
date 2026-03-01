@@ -553,7 +553,7 @@ class ApiClient {
   }
 
   async getPdfStatus(pdfId: string): Promise<{ pdf: PdfFile }> {
-    const response = await this.request<ApiResponse<PdfFile>>(`/api/pdfs/${pdfId}/status`);
+    const response = await this.request<ApiResponse<PdfFile>>(`/api/pdfs/${pdfId}`);
 
     return {
       pdf: response.data!

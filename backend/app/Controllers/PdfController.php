@@ -166,7 +166,14 @@ class PdfController extends BaseController
 
         // 3. BACKGROUND TASKS
         try {
-            // Trigger Python processing
+            // Step A: Upload to Appwrite Storage (this blocks the background thread for 10-20 seconds on 12MB files)
+            $storage->createFile(
+                getenv('APPWRITE_STORAGE_BUCKET_ID'),
+                $appwriteFileId,
+                $inputFile
+            );
+
+            // Step B: Trigger Python processing (this blocks for 60-150 seconds)
             $this->sendToPythonProcessor($pdfData['pdf_id'], $appwriteFileId, $user_id);
             // Update status to processing/completed
             $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'completed'); // Assume it completed if no error
