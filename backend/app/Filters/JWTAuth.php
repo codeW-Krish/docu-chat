@@ -13,20 +13,16 @@ class JWTAuth implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null)
     {
-        // Add CORS headers first
-        $response = Services::response();
-        $response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-                 ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                 ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-                 ->setHeader('Access-Control-Allow-Credentials', 'true');
+        // Skip authorization for preflight queries
+        if (strtoupper($request->getMethod()) === 'OPTIONS') {
+            return;
+        }
 
+        // CORS is handled globally, so we just check auth here
         $authHeader = $request->getHeaderLine('Authorization');
         
         if (empty($authHeader)) {
-            $response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-                     ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                     ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-                     ->setHeader('Access-Control-Allow-Credentials', 'true');
+            $response = Services::response();
             return $response->setJSON([
                 'status' => 'error',
                 'message' => 'Authorization header required'
@@ -44,20 +40,14 @@ class JWTAuth implements FilterInterface
                 $request->user = $decoded;
                 
             } catch (\Exception $e) {
-                $response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-                         ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                         ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-                         ->setHeader('Access-Control-Allow-Credentials', 'true');
+                $response = Services::response();
                 return $response->setJSON([
                     'status' => 'error',
                     'message' => 'Invalid or expired token'
                 ])->setStatusCode(401);
             }
         } else {
-            $response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-                     ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                     ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-                     ->setHeader('Access-Control-Allow-Credentials', 'true');
+            $response = Services::response();
             return $response->setJSON([
                 'status' => 'error',
                 'message' => 'Invalid authorization format'
@@ -67,12 +57,6 @@ class JWTAuth implements FilterInterface
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)
     {
-        // Add CORS headers to response
-        $response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-                 ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                 ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-                 ->setHeader('Access-Control-Allow-Credentials', 'true');
-        
         return $response;
     }
 }
