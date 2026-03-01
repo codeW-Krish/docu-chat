@@ -19,7 +19,11 @@ RUN apt-get update && apt-get install -y \
 RUN docker-php-ext-install pdo pgsql pdo_pgsql curl zip intl
 
 # ---- Apache Config ----
-RUN a2dismod mpm_event mpm_worker 2>/dev/null; a2enmod mpm_prefork rewrite headers
+# Fix MPM conflict: remove ALL MPM modules, then enable only prefork
+RUN rm -f /etc/apache2/mods-enabled/mpm_*.conf /etc/apache2/mods-enabled/mpm_*.load && \
+    ln -sf /etc/apache2/mods-available/mpm_prefork.conf /etc/apache2/mods-enabled/mpm_prefork.conf && \
+    ln -sf /etc/apache2/mods-available/mpm_prefork.load /etc/apache2/mods-enabled/mpm_prefork.load && \
+    a2enmod rewrite headers
 
 # Set document root to CodeIgniter's public folder
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/backend/public
