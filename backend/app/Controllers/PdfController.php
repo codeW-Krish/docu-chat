@@ -101,7 +101,7 @@ class PdfController extends BaseController
         try {
             $uploadedFile = $storage->createFile(
                 getenv('APPWRITE_STORAGE_BUCKET_ID'),
-                \Appwrite\Id::unique(),
+                \Appwrite\ID::unique(),
                 $inputFile
             );
             $appwriteFileId = $uploadedFile['$id'];
