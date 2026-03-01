@@ -620,11 +620,11 @@ class Auth extends BaseController
     {
         $config = [
             'protocol'  => 'smtp',
-            'SMTPHost'  => 'smtp.gmail.com',
+            'SMTPHost'  => 'ssl://smtp.gmail.com',
             'SMTPUser'  => getenv('SMTP_USER'),
             'SMTPPass'  => getenv('SMTP_PASS'),
-            'SMTPPort'  => 587,
-            'SMTPCrypto'=> 'tls',
+            'SMTPPort'  => 465,
+            'SMTPCrypto'=> 'ssl',
             'mailType'  => 'text',
             'charset'   => 'utf-8',
             'wordWrap'  => true,
