@@ -22,6 +22,9 @@ RUN docker-php-ext-install pdo pgsql pdo_pgsql curl zip intl
 # MPM fix happens at runtime in docker-entrypoint.sh
 RUN a2enmod rewrite headers
 
+# Raise PHP limits to allow 100MB+ PDF uploads natively
+RUN echo "upload_max_filesize = 100M\npost_max_size = 100M\nmemory_limit = 512M\nmax_execution_time = 300\nmax_input_time = 300" > /usr/local/etc/php/conf.d/uploads.ini
+
 # Set document root to CodeIgniter's public folder
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/backend/public
 
