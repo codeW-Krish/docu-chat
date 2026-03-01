@@ -66,16 +66,37 @@ class Database extends Config
     {
         parent::__construct();
 
-        $host     = env('database.default.hostname');
-        $port     = env('database.default.port', 5432);
-        $dbname   = env('database.default.database');
-        $user     = env('database.default.username');
-        $password = env('database.default.password');
-        $sslmode  = env('database.default.sslmode', 'require');
-        $endpoint = env('database.default.endpoint');
+        // Support DATABASE_URL if set (Railway/Docker style)
+        $databaseUrl = env('DATABASE_URL');
 
-        $this->default['DSN']      = "host={$host} port={$port} dbname={$dbname} user={$user} password={$password} sslmode={$sslmode} options='endpoint={$endpoint}'";
-        $this->default['DBDriver'] = env('database.default.DBDriver', 'Postgre');
+        if ($databaseUrl) {
+            $parsed = parse_url($databaseUrl);
+            $host     = $parsed['host'];
+            $port     = $parsed['port'] ?? 5432;
+            $dbname   = ltrim($parsed['path'], '/');
+            $user     = $parsed['user'];
+            $password = $parsed['pass'];
+
+            // Extract endpoint from host prefix
+            preg_match('/^(ep-[^\.]+)/', $host, $matches);
+            $endpoint = $matches[1] ?? $host;
+
+            $this->default['DSN']      = "host={$host} port={$port} dbname={$dbname} user={$user} password={$password} sslmode=require options='endpoint={$endpoint}'";
+            $this->default['DBDriver'] = 'Postgre';
+
+        } else {
+            // Fallback to individual env vars
+            $host     = env('database.default.hostname');
+            $port     = env('database.default.port', 5432);
+            $dbname   = env('database.default.database');
+            $user     = env('database.default.username');
+            $password = env('database.default.password');
+            $sslmode  = env('database.default.sslmode', 'require');
+            $endpoint = env('database.default.endpoint');
+
+            $this->default['DSN']      = "host={$host} port={$port} dbname={$dbname} user={$user} password={$password} sslmode={$sslmode} options='endpoint={$endpoint}'";
+            $this->default['DBDriver'] = env('database.default.DBDriver', 'Postgre');
+        }
 
         if (ENVIRONMENT === 'testing') {
             $this->defaultGroup = 'tests';
