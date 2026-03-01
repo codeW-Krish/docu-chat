@@ -91,9 +91,11 @@ class PdfController extends BaseController
         $storage = new \Appwrite\Services\Storage($client);
 
         // Identify file to upload to Appwrite
-        $inputFile = \Appwrite\InputFile::withPath($pdfFile->getTempName(), [
-            'filename' => $pdfFile->getClientName()
-        ]);
+        $inputFile = \Appwrite\InputFile::withPath(
+            $pdfFile->getTempName(), 
+            $pdfFile->getClientMimeType(),
+            $pdfFile->getClientName()
+        );
         
         // Upload to Appwrite Storage
         try {
