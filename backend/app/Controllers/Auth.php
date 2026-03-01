@@ -344,151 +344,64 @@ class Auth extends BaseController
             ])->setStatusCode(400);
         }
 
-        // 2. Generate OTP
-        $otp = (string) random_int(100000, 999999);
+        // ==========================================
+        // BYPASS OTP FOR NOW: Directly create user
+        // ==========================================
         
-        // 3. Hash sensitive data
-        $otpHash = password_hash($otp, PASSWORD_DEFAULT);
-        $passwordHash = password_hash($data['password'], PASSWORD_DEFAULT);
-
-     
-        $regPayload = [
-            'type' => 'registration',
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password_hash' => $passwordHash,
-            'otp_hash' => $otpHash,
-            'iat' => time(),
-            'exp' => time() + (15 * 60) 
-        ];
-
-        $regToken = JWTLib::encode($regPayload, $this->jwt->key, $this->jwt->algorithm);
-
-      
-        $emailDebugger = '';
-        if (!$this->sendEmail($data['email'], 'Verify your account', "Your verification code is: $otp", $emailDebugger)) {
+        // 2. Check if user already exists
+        if ($this->userModel->where('email', $data['email'])->first()) {
             return $this->response->setJSON([
                 'status' => 'error',
-                'message' => 'Failed to send verification email',
-                'debug' => $emailDebugger
+                'message' => 'Email already registered'
+            ])->setStatusCode(400);
+        }
+
+        // 3. Create User immediately
+        $userData = [
+            'user_id' => $this->generateUuid(),
+            'email' => $data['email'],
+            'password_hash' => password_hash($data['password'], PASSWORD_DEFAULT),
+            'name' => $data['name']
+        ];
+
+        try {
+            $this->userModel->insert($userData);
+        } catch (\Exception $e) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Failed to create user account'
             ])->setStatusCode(500);
         }
 
-         // Add CORS headers
-         $this->response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-         ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-         ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-         ->setHeader('Access-Control-Allow-Credentials', 'true');
+        // 4. Generate Login Tokens immediately
+        $tokens = $this->generateTokens($userData['user_id']);
 
         return $this->response->setJSON([
             'status' => 'success',
-            'message' => 'Verification code sent',
+            'message' => 'Registration successful', 
             'data' => [
-                'registration_token' => $regToken
+                'registration_token' => 'bypassed',
+                'tokens' => $tokens,
+                'user' => [
+                    'user_id' => $userData['user_id'],
+                    'email' => $userData['email'],
+                    'name' => $userData['name']
+                ]
             ]
         ]);
     }
 
     public function registerComplete()
     {
-        // $this->handleCors();
-
-        $data = $this->request->getJSON(true);
-        $otp = $data['otp'] ?? '';
-        $regToken = $data['registration_token'] ?? '';
-
-        if (!$otp || !$regToken) {
-             // Add CORS headers
-             $this->response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-             ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-             ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-             ->setHeader('Access-Control-Allow-Credentials', 'true');
-
-            return $this->response->setJSON([
-                'status' => 'error',
-                'message' => 'Missing OTP or token'
-            ])->setStatusCode(400);
-        }
-
-        try {
-            // 1. Verify JWT
-            $decoded = JWTLib::decode($regToken, new Key($this->jwt->key, $this->jwt->algorithm));
-            
-            if ($decoded->type !== 'registration') {
-                throw new \Exception('Invalid token type');
-            }
-
-            // 2. Verify OTP
-            if (!password_verify($otp, $decoded->otp_hash)) {
-                 // Add CORS headers
-                $this->response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-                ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-                ->setHeader('Access-Control-Allow-Credentials', 'true');
-
-                return $this->response->setJSON([
-                    'status' => 'error',
-                    'message' => 'Invalid verification code'
-                ])->setStatusCode(400);
-            }
-
-            // 3. Create User (Double check email uniqueness just in case)
-            if ($this->userModel->where('email', $decoded->email)->first()) {
-                 // Add CORS headers
-                 $this->response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-                 ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-                 ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-                 ->setHeader('Access-Control-Allow-Credentials', 'true');
-
-                return $this->response->setJSON([
-                    'status' => 'error',
-                    'message' => 'Email already registered'
-                ])->setStatusCode(400);
-            }
-
-            $userData = [
-                'user_id' => $this->generateUuid(),
-                'email' => $decoded->email,
-                'password_hash' => $decoded->password_hash,
-                'name' => $decoded->name
-            ];
-
-            $this->userModel->insert($userData);
-
-            // 4. Generate Login Tokens
-            $tokens = $this->generateTokens($userData['user_id']);
-
-             // Add CORS headers
-             $this->response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-             ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-             ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-             ->setHeader('Access-Control-Allow-Credentials', 'true');
-
-            return $this->response->setJSON([
-                'status' => 'success',
-                'message' => 'Registration successful',
-                'data' => [
-                    'tokens' => $tokens,
-                    'user' => [
-                        'user_id' => $userData['user_id'],
-                        'email' => $userData['email'],
-                        'name' => $userData['name']
-                    ]
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-             // Add CORS headers
-             $this->response->setHeader('Access-Control-Allow-Origin', 'http://localhost:3000')
-             ->setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-             ->setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-             ->setHeader('Access-Control-Allow-Credentials', 'true');
-
-            return $this->response->setJSON([
-                'status' => 'error',
-                'message' => 'Invalid or expired session'
-            ])->setStatusCode(400);
-        }
+        // ==========================================
+        // BYPASS OTP FOR NOW: This is just a stub
+        // because the user is already created in registerInit
+        // ==========================================
+        
+        return $this->response->setJSON([
+            'status' => 'success',
+            'message' => 'Registration completed via bypass.'
+        ]);
     }
 
     // --------------------------------------------------------------------
