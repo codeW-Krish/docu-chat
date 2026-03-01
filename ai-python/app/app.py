@@ -58,6 +58,16 @@ except Exception as e:
     ai_generator = None
     services_available = False
 
+@app.route('/', methods=['GET'])
+def index():
+    """Root endpoint for HuggingFace Space"""
+    return jsonify({
+        'service': 'Docu-Chat AI Python Server',
+        'status': 'running',
+        'endpoints': ['/health', '/process-pdf', '/chat'],
+        'services_ready': services_available
+    })
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
