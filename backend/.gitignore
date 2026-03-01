@@ -11,6 +11,7 @@
 ._*
 
 # Ignoring configuration files
+# /app/Config/Database.php
 /node_modules/
 
 # Windows image file caches

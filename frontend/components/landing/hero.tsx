@@ -40,7 +40,7 @@ export function LandingHero() {
                     <motion.div variants={itemVariants} className="mb-6">
                         <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-l-secondary dark:bg-white/5 border border-gray-200 dark:border-white/10 text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-dark dark:text-gray-300 backdrop-blur-sm">
                             <span className="w-2 h-2 rounded-full bg-lime-accent animate-pulse shadow-[0_0_10px_rgba(163,230,53,0.5)]"></span>
-                            RAG 2.0 Technology
+                            RAG Technology
                         </span>
                     </motion.div>
 
