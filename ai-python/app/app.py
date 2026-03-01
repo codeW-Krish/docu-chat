@@ -108,25 +108,10 @@ def process_pdf():
                 'message': 'PDF path, PDF ID, and User ID required'
             }), 400
         
-        # Validate PDF file exists
-        if not os.path.exists(pdf_path):
-            logger.error(f"PDF file not found: {pdf_path}")
-            return jsonify({
-                'status': 'error',
-                'message': 'PDF file not found on server'
-            }), 400
+        # Note: We no longer validate file extensions or local existence here 
+        # because pdf_path is now an Appwrite File ID, not a local file path.
         
-        # Validate it's a PDF file
-        # Validate file type
-        allowed_extensions = ['.pdf', '.docx', '.txt', '.csv', '.pptx']
-        if not any(pdf_path.lower().endswith(ext) for ext in allowed_extensions):
-            logger.error(f"Invalid file type: {pdf_path}")
-            return jsonify({
-                'status': 'error',
-                'message': 'Invalid file type. Allowed: PDF, DOCX, PPTX, TXT, CSV'
-            }), 400
-        
-        logger.info(f"Processing PDF: {pdf_path} for user {user_id}")
+        logger.info(f"Processing PDF (Appwrite ID): {pdf_path} for user {user_id}")
         
         # Process PDF using the provided path
         result = pdf_processor.process_pdf(pdf_id, pdf_path, user_id)

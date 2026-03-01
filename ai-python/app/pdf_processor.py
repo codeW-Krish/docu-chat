@@ -194,6 +194,7 @@ class DocumentProcessor:
         logger.info(f"Page {page_number} split into {len(chunk_objects)} chunks")
         return chunk_objects
     
+    def process_pdf(self, pdf_id, file_path, user_id):
         import tempfile
         from appwrite.client import Client
         from appwrite.services.storage import Storage
@@ -217,8 +218,26 @@ class DocumentProcessor:
             logger.info(f"Downloading file ID {file_id} from Appwrite bucket {bucket_id}")
             
             try:
-                # Download file contents from Appwrite
-                result = storage.get_file_download(bucket_id, file_id)
+                # Bypass the buggy SDK get_file_download by using the REST API directly
+                import requests
+                
+                endpoint = os.getenv('APPWRITE_ENDPOINT')
+                project = os.getenv('APPWRITE_PROJECT_ID')
+                api_key = os.getenv('APPWRITE_API_KEY')
+                
+                url = f"{endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download"
+                headers = {
+                    "X-Appwrite-Project": project,
+                    "X-Appwrite-Key": api_key
+                }
+                
+                logger.info(f"Downloading directly from Appwrite API: {url}")
+                response = requests.get(url, headers=headers)
+                
+                if response.status_code != 200:
+                    raise Exception(f"Appwrite API returned {response.status_code}: {response.text}")
+                    
+                result = response.content
                 
                 # Try to get the file name/extension from Appwrite metadata, fallback to .pdf
                 try:
