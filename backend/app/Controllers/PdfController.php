@@ -100,57 +100,78 @@ class PdfController extends BaseController
             $pdfFile->getClientName()
         );
         
-        // Upload to Appwrite Storage
-        try {
-            $uploadedFile = $storage->createFile(
-                getenv('APPWRITE_STORAGE_BUCKET_ID'),
-                \Appwrite\ID::unique(),
-                $inputFile
-            );
-            $appwriteFileId = $uploadedFile['$id'];
-        } catch (\Exception $e) {
-            log_message('error', 'Appwrite upload error: ' . $e->getMessage());
-            throw new \Exception('Failed to upload file to Appwrite storage');
-        }
+        $appwriteFileId = \Appwrite\ID::unique();
+        $pdfId = $this->generateUuid(); // Internal Database UUID
 
-        // Save PDF metadata to database
+        // Save PDF metadata to database first
         $pdfData = [
-            'pdf_id' => $this->generateUuid(), // Internal Database UUID
+            'pdf_id' => $pdfId, 
             'user_id' => $user_id,
             'file_name' => $pdfFile->getClientName(),
-            'file_path' => $appwriteFileId, // Store Appwrite File ID here instead of local path
+            'file_path' => $appwriteFileId, 
             'file_hash' => $fileHash,
             'file_size' => $pdfFile->getSize(),
             'processing_status' => 'pending',
-            'page_count' => 0, // default
+            'page_count' => 0, 
             'uploaded_at' => date('Y-m-d H:i:s')
         ];
 
-        $pdfId = $this->pdfModel->insert($pdfData);
-        if (!$pdfId) {
-            // Rollback Appwrite upload if DB insert fails
-            try {
-                $storage->deleteFile(getenv('APPWRITE_STORAGE_BUCKET_ID'), $appwriteFileId);
-            } catch (\Exception $rollbackEx) {
-                log_message('error', 'Failed to rollback Appwrite file: ' . $appwriteFileId);
-            }
-            log_message('error', 'Failed to insert PDF metadata: ' . print_r($pdfData, true));
+        if (!$this->pdfModel->insert($pdfData)) {
             throw new \Exception('Failed to save PDF metadata to database');
         }
 
-        // Trigger background processing - pass the Appwrite File ID
-        $this->sendToPythonProcessor($pdfData['pdf_id'], $appwriteFileId, $user_id);
-
-        return $this->response->setJSON([
+        // 1. Prepare JSON Response
+        $responseData = [
             'status' => 'success',
             'message' => 'PDF uploaded successfully. Processing started.',
             'data' => [
                 'pdf_id' => $pdfData['pdf_id'],
                 'file_name' => $pdfData['file_name'],
                 'file_size' => $pdfData['file_size'],
-                'processing_status' => 'processing'
+                'processing_status' => 'pending'
             ]
-        ]);
+        ];
+
+        // 2. Early Response to avoid 100s fastcgi timeout on 12MB uploads
+        ob_clean();
+        header("Connection: close");
+        ignore_user_abort(true);
+        ob_start();
+        echo json_encode($responseData);
+        $size = ob_get_length();
+        header("Content-Length: $size");
+        header('Content-Type: application/json');
+        ob_end_flush();
+        flush();
+        
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        }
+
+        // 3. BACKGROUND TASKS
+        try {
+            // Upload to Appwrite Storage (takes time for 12MB)
+            $storage->createFile(
+                getenv('APPWRITE_STORAGE_BUCKET_ID'),
+                $appwriteFileId,
+                $inputFile
+            );
+            
+            // Trigger Python processing
+            $this->sendToPythonProcessor($pdfData['pdf_id'], $appwriteFileId, $user_id);
+            
+        } catch (\Exception $bgEx) {
+            log_message('error', 'Background processing error: ' . $bgEx->getMessage());
+            $this->pdfModel->updateProcessingStatus($pdfId, 'error');
+            
+            // Attempt rollback
+            try {
+                $storage->deleteFile(getenv('APPWRITE_STORAGE_BUCKET_ID'), $appwriteFileId);
+            } catch (\Exception $rEx) {}
+        }
+
+        // Return gracefully for the background worker thread
+        return;
 
     } catch (\Exception $e) {
         log_message('error', 'PDF upload error: ' . $e->getMessage());
