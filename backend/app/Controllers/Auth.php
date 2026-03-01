@@ -578,74 +578,60 @@ class Auth extends BaseController
 
     private function sendEmail($to, $subject, $message, &$debugger = null)
     {
-        $email = \Config\Services::email();
-
-        // --- ATTEMPT 1: RESEND ---
-        $resendUser = getenv('RESEND_SMTP_USER');
-        $resendPass = getenv('RESEND_SMTP_PASS');
+        // --- ATTEMPT 1: RESEND (HTTP API) ---
+        $resendPass = getenv('RESEND_SMTP_PASS'); // This is the Resend API Key
         
-        if (!empty($resendUser) && !empty($resendPass)) {
-            $configResend = [
-                'protocol'  => 'smtp',
-                'SMTPHost'  => 'smtp.resend.com',
-                'SMTPUser'  => $resendUser,
-                'SMTPPass'  => $resendPass,
-                'SMTPPort'  => 465,
-                'SMTPCrypto'=> 'ssl',
-                'mailType'  => 'text',
-                'charset'   => 'utf-8',
-                'wordWrap'  => true,
-                'newline'   => "\r\n",
-                'CRLF'      => "\r\n"
-            ];
+        if (!empty($resendPass)) {
+            $ch = curl_init('https://api.resend.com/emails');
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Authorization: Bearer ' . $resendPass,
+                'Content-Type: application/json'
+            ]);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+                'from' => 'AI DocuChat <onboarding@resend.dev>',
+                'to' => $to,
+                'subject' => $subject,
+                'html' => nl2br($message)
+            ]));
             
-            $email->initialize($configResend);
+            $result = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
             
-            // Set headers AFTER initialization so they don't get cleared
-            $email->setFrom('onboarding@resend.dev', 'AI DocuChat'); // Resend requires verified domain, use their sandbox default if not verified
-            $email->setTo($to);
-            $email->setSubject($subject);
-            $email->setMessage($message);
-            
-            if ($email->send()) {
+            if ($httpCode >= 200 && $httpCode < 300) {
                 return true;
             }
-            $debugger = "Resend Failed: " . $email->printDebugger();
+            $debugger = "Resend HTTP Failed: " . $result;
         }
 
-        // --- ATTEMPT 2: BREVO FALLBACK ---
-        $brevoUser = getenv('BREVO_SMTP_USER');
-        $brevoPass = getenv('BREVO_SMTP_PASS');
+        // --- ATTEMPT 2: BREVO FALLBACK (HTTP API) ---
+        $brevoPass = getenv('BREVO_SMTP_PASS'); 
         
-        if (!empty($brevoUser) && !empty($brevoPass)) {
-            $configBrevo = [
-                'protocol'  => 'smtp',
-                'SMTPHost'  => 'smtp-relay.brevo.com',
-                'SMTPUser'  => $brevoUser,
-                'SMTPPass'  => $brevoPass,
-                'SMTPPort'  => 587,
-                'SMTPCrypto'=> 'tls',
-                'mailType'  => 'text',
-                'charset'   => 'utf-8',
-                'wordWrap'  => true,
-                'newline'   => "\r\n",
-                'CRLF'      => "\r\n"
-            ];
+        if (!empty($brevoPass)) {
+            $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'api-key: ' . $brevoPass,
+                'Content-Type: application/json'
+            ]);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+                'sender' => ['name' => 'AI DocuChat', 'email' => 'krishbca932006@gmail.com'],
+                'to' => [['email' => $to]],
+                'subject' => $subject,
+                'htmlContent' => nl2br($message)
+            ]));
             
-            // Initialize will automatically clear the previous state
-            $email->initialize($configBrevo);
+            $result = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
             
-            // Set headers AFTER initialization
-            // Note: Brevo requires the sender email to be the one verified in their dashboard
-            $email->setFrom('krishbca932006@gmail.com', 'AI DocuChat'); 
-            $email->setTo($to);
-            $email->setSubject($subject);
-            $email->setMessage($message);
-            
-            if ($email->send()) {
+            if ($httpCode >= 200 && $httpCode < 300) {
                 return true;
             }
-            $debugger .= " | Brevo Failed: " . $email->printDebugger();
+            $debugger .= " | Brevo HTTP Failed: " . $result;
         }
         
         return false;
