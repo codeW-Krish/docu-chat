@@ -58,9 +58,9 @@ $routes->group('api', ['filter' => ['cors', 'jwtauth']], static function($routes
     // Chat routes
     $routes->get('chat/sessions', [ChatController::class, 'getSessions']);
     $routes->post('chat/sessions', [ChatController::class, 'createSession']);
-    $routes->put('chat/sessions/(:segment)', [ChatController::class, 'renameSession/$1']);
+    $routes->put('chat/sessions/(:segment)', [ChatController::class, 'renameSession']);
     $routes->options('chat/sessions/(:segment)', [ChatController::class, 'handleOptions']);
-    $routes->delete('chat/sessions/(:segment)', [ChatController::class, 'deleteSession/$1']);
+    $routes->delete('chat/sessions/(:segment)', [ChatController::class, 'deleteSession']);
     $routes->post('chat/send', [ChatController::class, 'sendMessage']);
     $routes->get('chat/sessions/(:segment)', [ChatController::class, 'getSession']);
     $routes->get('chat/sessions/(:segment)/messages', [ChatController::class, 'getSessionMessages']);

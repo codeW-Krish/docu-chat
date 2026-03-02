@@ -121,6 +121,40 @@ class ChatController extends BaseController
         }
     }
 
+    public function deleteSession($sessionId)
+    {
+        try {
+            log_message('info', 'Attempting to delete session API call for: ' . $sessionId);
+            $userId = $this->request->user->user_id;
+
+            // Verify session belongs to user
+            $session = $this->chatSessionModel->where('session_id', $sessionId)
+                                             ->where('user_id', $userId)
+                                             ->first();
+            if (!$session) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Session not found or forbidden'
+                ])->setStatusCode(404);
+            }
+
+            // CodeIgniter Model delete will take care of deleting the row
+            $this->chatSessionModel->delete($session['id']);
+
+            return $this->response->setJSON([
+                'status' => 'success',
+                'message' => 'Session deleted successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            log_message('error', 'Delete session error: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Failed to delete session: ' . $e->getMessage()
+            ])->setStatusCode(500);
+        }
+    }
+
     public function getSessions()
 {
     try {
