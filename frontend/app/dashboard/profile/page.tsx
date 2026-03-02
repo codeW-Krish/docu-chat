@@ -76,28 +76,28 @@ export default function ProfilePage() {
             <div className="mb-8">
                 <Link
                     href="/dashboard"
-                    className="inline-flex items-center text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-dark dark:hover:text-white transition-colors mb-6 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 px-4 py-2 rounded-full"
+                    className="inline-flex items-center text-sm font-medium text-zinc-500 dark:text-gray-400 hover:text-zinc-900 dark:hover:text-white transition-colors mb-6 bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/10 px-4 py-2 rounded-full"
                 >
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     Back to Dashboard
                 </Link>
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-lime-accent/10">
-                        <User className="h-6 w-6 text-lime-accent" />
+                        <User className="h-6 w-6 text-lime-600 dark:text-lime-accent" />
                     </div>
-                    <h1 className="text-3xl font-extrabold text-dark dark:text-white tracking-tight">
+                    <h1 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
                         Profile <span className="bg-gradient-to-r from-lime-accent to-lime-500 bg-clip-text text-transparent">Settings</span>
                     </h1>
                 </div>
-                <p className="text-gray-500 dark:text-gray-400 mt-3 text-sm sm:text-base">
+                <p className="text-zinc-500 dark:text-gray-400 mt-3 text-sm sm:text-base">
                     Manage your account settings and preferences
                 </p>
             </div>
 
-            <Card className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg animate-slide-up border-0 overflow-hidden">
-                <CardHeader className="bg-gray-50/50 dark:bg-white/[0.02] border-b border-gray-100 dark:border-white/5 pb-6">
-                    <CardTitle className="text-xl font-bold">Personal Information</CardTitle>
-                    <CardDescription className="text-gray-500 dark:text-gray-400">Update your personal details here.</CardDescription>
+            <Card className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none animate-slide-up border-0 overflow-hidden">
+                <CardHeader className="bg-zinc-50/50 dark:bg-white/[0.02] border-b border-zinc-200 dark:border-white/5 pb-6">
+                    <CardTitle className="text-xl font-bold text-zinc-900 dark:text-white">Personal Information</CardTitle>
+                    <CardDescription className="text-zinc-500 dark:text-gray-400">Update your personal details here.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6">
                     {message && (
@@ -111,50 +111,50 @@ export default function ProfilePage() {
 
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <div className="space-y-2">
-                            <Label htmlFor="email" className="text-sm font-semibold text-dark dark:text-gray-300">Email Address</Label>
+                            <Label htmlFor="email" className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Email Address</Label>
                             <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-400" />
                                 <Input
                                     id="email"
                                     value={email}
                                     disabled
-                                    className="pl-10 h-12 bg-gray-50 dark:bg-[#111] border-gray-200 dark:border-white/10 rounded-xl opacity-70 cursor-not-allowed"
+                                    className="pl-10 h-12 bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl opacity-70 cursor-not-allowed text-zinc-900 dark:text-white text-base"
                                 />
                             </div>
-                            <p className="text-xs text-gray-500 font-medium">Email address cannot be changed</p>
+                            <p className="text-xs text-zinc-500 font-medium">Email address cannot be changed</p>
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="name" className="text-sm font-semibold text-dark dark:text-gray-300">Full Name</Label>
+                            <Label htmlFor="name" className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Full Name</Label>
                             <div className="relative">
-                                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-400" />
                                 <Input
                                     id="name"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
-                                    className="pl-10 h-12 bg-gray-50 dark:bg-[#111] border-gray-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent"
+                                    className="pl-10 h-12 bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent text-zinc-900 dark:text-white text-base font-medium"
                                     placeholder="Enter your name"
                                     required
                                 />
                             </div>
                         </div>
 
-                        <div className="pt-8 border-t border-gray-100 dark:border-white/10">
-                            <h3 className="text-lg font-bold text-dark dark:text-white mb-6 flex items-center gap-2">
-                                <Lock className="w-5 h-5 text-gray-400" />
+                        <div className="pt-8 border-t border-zinc-100 dark:border-white/10">
+                            <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-6 flex items-center gap-2">
+                                <Lock className="w-5 h-5 text-zinc-400" />
                                 Change Password
                             </h3>
-                            <div className="grid gap-5 shadow-sm p-5 sm:p-6 border border-gray-100 dark:border-white/5 rounded-2xl bg-gray-50/50 dark:bg-white/[0.02]">
+                            <div className="grid gap-5 shadow-sm p-5 sm:p-6 border border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-white/[0.02]">
                                 <div className="space-y-2">
-                                    <Label htmlFor="password" className="text-sm font-semibold text-dark dark:text-gray-300">New Password</Label>
+                                    <Label htmlFor="password" className="text-sm font-semibold text-zinc-900 dark:text-gray-300">New Password</Label>
                                     <div className="relative">
-                                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-400" />
                                         <Input
                                             id="password"
                                             type="password"
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
-                                            className="pl-10 h-12 bg-white dark:bg-[#111] border-gray-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent"
+                                            className="pl-10 h-12 bg-white dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent text-zinc-900 dark:text-white"
                                             placeholder="Leave blank to keep current"
                                             minLength={8}
                                         />
@@ -162,15 +162,15 @@ export default function ProfilePage() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="confirmPassword" className="text-sm font-semibold text-dark dark:text-gray-300">Confirm New Password</Label>
+                                    <Label htmlFor="confirmPassword" className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Confirm New Password</Label>
                                     <div className="relative">
-                                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-400" />
                                         <Input
                                             id="confirmPassword"
                                             type="password"
                                             value={confirmPassword}
                                             onChange={(e) => setConfirmPassword(e.target.value)}
-                                            className="pl-10 h-12 bg-white dark:bg-[#111] border-gray-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent"
+                                            className="pl-10 h-12 bg-white dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent text-zinc-900 dark:text-white"
                                             placeholder="Confirm new password"
                                         />
                                     </div>

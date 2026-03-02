@@ -189,12 +189,12 @@ export function PdfUpload() {
   }
 
   return (
-    <div className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg p-6 sm:p-8">
+    <div className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none p-6 sm:p-8">
       <div className="flex items-center gap-3 mb-6">
         <div className="p-2 rounded-lg bg-lime-accent/10">
-          <CloudUpload className="h-5 w-5 text-lime-accent" />
+          <CloudUpload className="h-5 w-5 text-lime-600 dark:text-lime-accent" />
         </div>
-        <h3 className="text-xl font-extrabold text-dark dark:text-white tracking-tight">Upload Documents</h3>
+        <h3 className="text-xl font-extrabold text-zinc-900 dark:text-white tracking-tight">Upload Documents</h3>
         {hasActiveUploads && (
           <span className="ml-auto text-xs text-lime-accent font-semibold flex items-center gap-1.5 bg-lime-accent/10 px-3 py-1.5 rounded-full border border-lime-accent/20">
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -206,10 +206,10 @@ export function PdfUpload() {
       {/* Drop Zone */}
       <div
         className={`
-          border-2 border-dashed rounded-xl p-8 sm:p-12 text-center transition-all duration-300 cursor-pointer flex flex-col items-center justify-center
+          border-2 border-dashed rounded-xl p-8 sm:p-12 text-center transition-all duration-300 cursor-pointer flex flex-col items-center justify-center group
           ${isDragging
-            ? "border-lime-accent bg-lime-accent/5"
-            : "border-gray-200 dark:border-white/10 hover:border-lime-accent/50 hover:bg-gray-50 dark:hover:bg-white/5 bg-gray-50/50 dark:bg-[#111]"
+            ? "border-lime-500 bg-lime-50 dark:border-lime-accent dark:bg-lime-accent/5"
+            : "border-zinc-200 dark:border-white/10 hover:border-lime-500/50 dark:hover:border-lime-accent/50 hover:bg-zinc-50 dark:hover:bg-white/5 bg-zinc-50/50 dark:bg-[#111]"
           }
         `}
         onDragOver={handleDragOver}
@@ -226,11 +226,11 @@ export function PdfUpload() {
           onChange={(e) => e.target.files && e.target.files.length > 0 && enqueueFiles(Array.from(e.target.files))}
         />
 
-        <div className="w-16 h-16 rounded-2xl bg-white dark:bg-[#1a1a1a] shadow-sm border border-gray-100 dark:border-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-          <FileText className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+        <div className="w-16 h-16 rounded-2xl bg-white dark:bg-[#1A1A1A] shadow-sm border border-zinc-200 dark:border-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <FileText className="w-8 h-8 text-zinc-400 dark:text-gray-500" />
         </div>
-        <p className="text-lg font-bold text-dark dark:text-white mb-2">Drop your documents here</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">or click to browse — uploads run in the background</p>
+        <p className="text-lg font-bold text-zinc-900 dark:text-white mb-2">Drop your documents here</p>
+        <p className="text-sm text-zinc-500 dark:text-gray-400 mb-6">or click to browse — uploads run in the background</p>
         <Button
           type="button"
           className="bg-lime-accent text-black h-10 px-6 rounded-full font-bold text-sm shadow-[0_4px_14px_0_rgba(163,230,53,0.39)] hover:bg-gradient-to-br hover:from-lime-accent hover:to-lime-400 transition-all duration-300 hover:scale-[1.05] active:scale-[0.95]"
@@ -250,14 +250,14 @@ export function PdfUpload() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="mt-6 border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden bg-white dark:bg-[#111] shadow-sm"
+            className="mt-6 border border-zinc-200 dark:border-white/10 rounded-xl overflow-hidden bg-white dark:bg-[#111] shadow-sm"
           >
             {/* Queue Header */}
             <div
-              className="flex items-center justify-between px-5 py-3 bg-gray-50 dark:bg-[#1A1A1A] cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-white/5 transition-colors border-b border-gray-200 dark:border-white/10"
+              className="flex items-center justify-between px-5 py-3 bg-zinc-50 dark:bg-[#1A1A1A] cursor-pointer select-none hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors border-b border-zinc-200 dark:border-white/10"
               onClick={() => setIsQueueMinimized(!isQueueMinimized)}
             >
-              <div className="flex items-center gap-2.5 text-sm font-bold text-dark dark:text-white">
+              <div className="flex items-center gap-2.5 text-sm font-bold text-zinc-900 dark:text-white">
                 {hasActiveUploads ? (
                   <Loader2 className="h-4 w-4 animate-spin text-lime-accent" />
                 ) : errorCount > 0 ? (
@@ -276,13 +276,13 @@ export function PdfUpload() {
                 {!hasActiveUploads && (
                   <button
                     onClick={(e) => { e.stopPropagation(); clearCompleted() }}
-                    className="text-xs font-semibold text-gray-500 hover:text-dark dark:hover:text-white transition-colors uppercase tracking-wider bg-gray-200 dark:bg-white/10 px-2 py-1 rounded"
+                    className="text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors uppercase tracking-wider bg-zinc-200 dark:bg-white/10 px-2 py-1 rounded"
                   >
                     Clear All
                   </button>
                 )}
-                <div className="p-1 rounded bg-gray-200 dark:bg-white/10">
-                  {isQueueMinimized ? <ChevronUp className="h-3 w-3 text-dark dark:text-white" /> : <ChevronDown className="h-3 w-3 text-dark dark:text-white" />}
+                <div className="p-1 rounded bg-zinc-200 dark:bg-white/10">
+                  {isQueueMinimized ? <ChevronUp className="h-3 w-3 text-zinc-900 dark:text-white" /> : <ChevronDown className="h-3 w-3 text-zinc-900 dark:text-white" />}
                 </div>
               </div>
             </div>
