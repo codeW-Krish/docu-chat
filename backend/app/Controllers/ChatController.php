@@ -103,10 +103,10 @@ class ChatController extends BaseController
             }
             
             // Update the name
-            $this->chatSessionModel->update($session['id'], ['session_name' => trim($newName)]);
+            $this->chatSessionModel->update($session->session_id, ['session_name' => trim($newName)]);
             
             // Return updated session
-            $updatedSession = $this->chatSessionModel->find($session['id']);
+            $updatedSession = $this->chatSessionModel->find($session->session_id);
             return $this->response->setJSON([
                 'status' => 'success',
                 'data' => $updatedSession
@@ -139,7 +139,7 @@ class ChatController extends BaseController
             }
 
             // CodeIgniter Model delete will take care of deleting the row
-            $this->chatSessionModel->delete($session['id']);
+            $this->chatSessionModel->delete($session->session_id);
 
             return $this->response->setJSON([
                 'status' => 'success',
