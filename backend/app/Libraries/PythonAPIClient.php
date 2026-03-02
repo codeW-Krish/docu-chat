@@ -92,8 +92,8 @@ public function processPdf($pdfId, $pdfPath, $userId)
         $options = [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
-            // 200 milliseconds is enough time to send the payload but not to wait for the 10-minute response
-            CURLOPT_TIMEOUT_MS => 200, 
+            // Give 2 seconds to ensure payload delivery over the network (Railway to Huggingface)
+            CURLOPT_TIMEOUT_MS => 2000, 
             CURLOPT_NOSIGNAL => 1, // needed for sub-second timeouts in some PHP environments
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($data),
