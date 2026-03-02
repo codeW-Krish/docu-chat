@@ -8,13 +8,14 @@ import { useAuth } from "@/hooks/use-auth"
 import { motion, AnimatePresence } from "framer-motion"
 
 // --- Upload Queue Types ---
-type QueueItemStatus = 'queued' | 'uploading' | 'success' | 'error'
+type QueueItemStatus = 'queued' | 'uploading' | 'processing' | 'success' | 'error'
 
 interface QueueItem {
   id: string
   file: File
   status: QueueItemStatus
-  progress: number
+  progress: number // Network upload progress
+  aiProgress?: number // Vectorization processing progress
   message?: string
 }
 
@@ -46,7 +47,11 @@ export function PdfUpload() {
   const errorCount = queue.filter(q => q.status === 'error').length
   const totalCount = queue.length
   const overallProgress = totalCount > 0
-    ? queue.reduce((sum, q) => sum + (q.status === 'success' ? 100 : q.status === 'error' ? 100 : q.progress), 0) / totalCount
+    ? queue.reduce((sum, q) => {
+      if (q.status === 'success' || q.status === 'error') return sum + 100
+      if (q.status === 'processing') return sum + 50 + ((q.aiProgress || 0) / 2) // second half is AI
+      return sum + (q.progress / 2) // first half is upload
+    }, 0) / totalCount
     : 0
 
   // Process the queue — upload next items if slots available
@@ -67,12 +72,12 @@ export function PdfUpload() {
           ; (async () => {
             try {
               const result = await api.uploadPdfChunked(item.file, (progress) => {
-                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, progress: progress * 0.5 } : qi)) // Upload is first 50%
+                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, progress } : qi))
               })
 
               // If the backend says it's processing in the background, we need to poll
               if (result.pdf && (result.pdf.processing_status === 'pending' || result.pdf.processing_status === 'processing')) {
-                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, progress: 50, message: 'Processing AI...' } : qi))
+                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'processing', progress: 100, aiProgress: 0, message: 'Extracting AI Knowledge...' } : qi))
 
                 // Poll every 5 seconds
                 const pollInterval = setInterval(async () => {
@@ -81,13 +86,13 @@ export function PdfUpload() {
 
                     if (statusResult.pdf.processing_status === 'completed') {
                       clearInterval(pollInterval)
-                      setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'success' as const, progress: 100, message: 'Done' } : qi))
+                      setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'success' as const, aiProgress: 100, message: 'Ready' } : qi))
                       window.dispatchEvent(new Event("pdfUploaded"))
                       activeUploads.current--
                       processQueue()
                     } else if (statusResult.pdf.processing_status === 'failed') {
                       clearInterval(pollInterval)
-                      setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'error' as const, progress: 100, message: 'AI Processing failed' } : qi))
+                      setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'error' as const, message: 'AI Processing failed' } : qi))
                       activeUploads.current--
                       processQueue()
                     } else {
@@ -95,9 +100,7 @@ export function PdfUpload() {
                       const liveProgress = statusResult.pdf.processing_progress || 0
                       setQueue(q => q.map(qi => {
                         if (qi.id === item.id) {
-                          // Ensure we show at least 50% since the upload finished
-                          const displayProgress = Math.max(50, liveProgress)
-                          return { ...qi, progress: displayProgress, message: `Processing AI (${displayProgress}%)...` }
+                          return { ...qi, aiProgress: liveProgress, message: `Extracting AI Knowledge (${liveProgress}%)...` }
                         }
                         return qi
                       }))
@@ -109,7 +112,7 @@ export function PdfUpload() {
 
               } else {
                 // It finished synchronously
-                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'success' as const, progress: 100, message: 'Uploaded' } : qi))
+                setQueue(q => q.map(qi => qi.id === item.id ? { ...qi, status: 'success' as const, aiProgress: 100, message: 'Uploaded' } : qi))
                 window.dispatchEvent(new Event("pdfUploaded"))
                 activeUploads.current--
                 processQueue()
@@ -307,55 +310,97 @@ export function PdfUpload() {
                   className="max-h-60 overflow-y-auto custom-scrollbar divide-y divide-gray-100 dark:divide-white/5"
                 >
                   {queue.map((item) => (
-                    <div key={item.id} className="flex items-center gap-3 px-5 py-3.5 text-sm group hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                      {/* Status Icon */}
-                      <div className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-white/5">
-                        {item.status === 'uploading' && <Loader2 className="h-3.5 w-3.5 animate-spin text-lime-accent" />}
-                        {item.status === 'queued' && <CloudUpload className="h-3.5 w-3.5 text-gray-400" />}
-                        {item.status === 'success' && <CheckCircle className="h-3.5 w-3.5 text-lime-accent" />}
-                        {item.status === 'error' && <AlertCircle className="h-3.5 w-3.5 text-red-500" />}
-                      </div>
-
-                      {/* File Info + Progress */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <span className="truncate font-semibold text-dark dark:text-white">{item.file.name}</span>
-                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded-md">
-                            {item.status === 'uploading' && `${Math.round(item.progress)}%`}
-                            {item.status === 'queued' && 'Queued'}
-                            {item.status === 'success' && 'Done'}
-                            {item.status === 'error' && (item.message || 'Failed')}
-                          </span>
+                    <div key={item.id} className="flex flex-col gap-2 px-5 py-4 text-sm group hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                      <div className="flex items-center gap-3">
+                        {/* Status Icon */}
+                        <div className="shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-white/5">
+                          {item.status === 'uploading' && <Loader2 className="h-4 w-4 animate-spin text-lime-accent" />}
+                          {item.status === 'processing' && <Loader2 className="h-4 w-4 animate-spin text-blue-500" />}
+                          {item.status === 'queued' && <CloudUpload className="h-4 w-4 text-gray-400" />}
+                          {item.status === 'success' && <CheckCircle className="h-4 w-4 text-lime-accent" />}
+                          {item.status === 'error' && <AlertCircle className="h-4 w-4 text-red-500" />}
                         </div>
-                        {item.status === 'uploading' && (
-                          <div className="h-1.5 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-lime-accent rounded-full transition-all duration-300"
-                              style={{ width: `${item.progress}%` }}
-                            />
+
+                        {/* File Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate flex-1 font-semibold text-dark dark:text-white">{item.file.name}</span>
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded-md">
+                              {item.status === 'queued' && 'Queued'}
+                              {item.status === 'success' && 'Ready to Chat'}
+                              {item.status === 'error' && (item.message || 'Failed')}
+                              {(item.status === 'uploading' || item.status === 'processing') && 'Processing...'}
+                            </span>
                           </div>
-                        )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {item.status === 'error' && (
+                            <button
+                              onClick={() => retryItem(item.id)}
+                              className="text-xs text-lime-accent hover:text-black dark:hover:text-lime-accent font-bold px-2 py-1.5 rounded-md hover:bg-lime-accent/20 transition-colors"
+                            >
+                              Retry
+                            </button>
+                          )}
+                          {(item.status === 'success' || item.status === 'error') && (
+                            <button
+                              onClick={() => removeItem(item.id)}
+                              className="text-gray-400 hover:text-red-500 transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-500/10"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Actions */}
-                      <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {item.status === 'error' && (
-                          <button
-                            onClick={() => retryItem(item.id)}
-                            className="text-xs text-lime-accent hover:text-black dark:hover:text-lime-accent font-bold px-2 py-1.5 rounded-md hover:bg-lime-accent/20 transition-colors"
-                          >
-                            Retry
-                          </button>
-                        )}
-                        {(item.status === 'success' || item.status === 'error') && (
-                          <button
-                            onClick={() => removeItem(item.id)}
-                            className="text-gray-400 hover:text-red-500 transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-500/10"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
+                      {/* Split Progress Checklist */}
+                      {(item.status === 'uploading' || item.status === 'processing' || item.status === 'success') && (
+                        <div className="ml-11 mt-1 space-y-2">
+                          {/* Step 1: Upload */}
+                          <div className="flex items-center gap-2 text-xs">
+                            {item.status === 'uploading' ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-lime-accent" />
+                            ) : (
+                              <CheckCircle className="h-3 w-3 text-lime-accent" />
+                            )}
+                            <span className={item.status === 'uploading' ? 'text-zinc-700 dark:text-white font-medium' : 'text-zinc-500 dark:text-zinc-400'}>
+                              Uploading to Secure Cloud {item.status === 'uploading' ? `(${Math.round(item.progress)}%)` : '(Done)'}
+                            </span>
+                          </div>
+                          {item.status === 'uploading' && (
+                            <div className="h-1 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden w-full max-w-xs mt-1">
+                              <div
+                                className="h-full bg-lime-accent rounded-full transition-all duration-300"
+                                style={{ width: `${item.progress}%` }}
+                              />
+                            </div>
+                          )}
+
+                          {/* Step 2: AI Processing */}
+                          <div className={`flex items-center gap-2 text-xs ${item.status === 'uploading' ? 'opacity-40' : 'opacity-100'}`}>
+                            {item.status === 'success' ? (
+                              <CheckCircle className="h-3 w-3 text-lime-accent" />
+                            ) : item.status === 'processing' ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                            ) : (
+                              <div className="h-3 w-3 rounded-full border border-zinc-300 dark:border-zinc-600" />
+                            )}
+                            <span className={item.status === 'processing' ? 'text-zinc-700 dark:text-white font-medium' : 'text-zinc-500 dark:text-zinc-400'}>
+                              Extracting AI Knowledge {item.status === 'processing' ? `(${item.aiProgress || 0}%)` : ''}
+                            </span>
+                          </div>
+                          {item.status === 'processing' && (
+                            <div className="h-1 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden w-full max-w-xs mt-1">
+                              <div
+                                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                                style={{ width: `${item.aiProgress || 0}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </motion.div>

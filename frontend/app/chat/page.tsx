@@ -124,25 +124,27 @@ export default function ChatPage() {
 
   if (isLoading) {
     return (
-      <div className="h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#050505] flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-accent mx-auto mb-4" />
-          <p className="text-muted-foreground font-serif">Loading your documents...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-lime-600 dark:text-lime-accent mx-auto mb-4" />
+          <p className="text-zinc-500 font-medium">Loading your documents...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-background flex flex-col overflow-hidden">
+    <div className="h-screen bg-[#FAFAFA] dark:bg-[#050505] flex flex-col overflow-hidden text-zinc-900 dark:text-white" style={{ fontFamily: 'var(--font-plus-jakarta), "Plus Jakarta Sans", sans-serif' }}>
       {/* Header Section */}
-      <div className="p-6 border-b bg-card/50 backdrop-blur-sm z-10">
+      <div className="p-6 border-b border-zinc-200 dark:border-white/10 bg-white/80 dark:bg-[#0A0A0A]/80 backdrop-blur-md z-10 shadow-sm">
         <div className="max-w-6xl mx-auto w-full">
-          <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-            <MessageSquare className="h-8 w-8 text-accent" />
+          <h1 className="text-3xl font-extrabold mb-2 flex items-center gap-3 text-zinc-900 dark:text-white tracking-tight">
+            <div className="p-2 rounded-lg bg-lime-accent/10">
+              <MessageSquare className="h-6 w-6 text-lime-600 dark:text-lime-accent" />
+            </div>
             Start New Chat Session
           </h1>
-          <p className="text-muted-foreground font-serif">
+          <p className="text-zinc-500 dark:text-gray-400 font-medium">
             Select multiple documents to create a comprehensive chat session
           </p>
         </div>
@@ -155,36 +157,36 @@ export default function ChatPage() {
 
             {/* Document Selection Column */}
             <div className="lg:col-span-2 h-full flex flex-col min-h-0">
-              <Card className="flex-1 flex flex-col min-h-0 shadow-md">
-                <CardHeader className="pb-4 border-b">
+              <div className="flex-1 flex flex-col min-h-0 shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 overflow-hidden">
+                <div className="p-6 pb-4 border-b border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/[0.02]">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <FileText className="h-5 w-5 text-accent" />
-                      Select Documents <span className="text-muted-foreground text-sm font-normal">({selectedPdfs.length} selected)</span>
-                    </CardTitle>
+                    <h2 className="flex items-center gap-2 text-lg font-bold text-zinc-900 dark:text-white">
+                      <FileText className="h-5 w-5 text-zinc-400 dark:text-gray-500" />
+                      Select Documents <span className="text-zinc-500 dark:text-gray-400 text-sm font-medium">({selectedPdfs.length} selected)</span>
+                    </h2>
                     <div className="relative w-full sm:w-64">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-zinc-400" />
                       <Input
                         placeholder="Search documents..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-9"
+                        className="pl-9 h-10 bg-white dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent"
                       />
                     </div>
                   </div>
-                </CardHeader>
+                </div>
 
-                <CardContent className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
                   {filteredPdfs.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center p-8">
-                      <div className="bg-muted/30 p-4 rounded-full mb-4">
-                        <FileText className="h-8 w-8 text-muted-foreground/50" />
+                      <div className="bg-zinc-50 dark:bg-white/5 p-4 rounded-full mb-4">
+                        <FileText className="h-8 w-8 text-zinc-400 dark:text-gray-500" />
                       </div>
-                      <p className="text-lg font-medium text-foreground mb-1">
+                      <p className="text-lg font-bold text-zinc-900 dark:text-white mb-1">
                         {searchTerm ? "No matches found" : "No documents available"}
                       </p>
-                      <p className="text-sm text-muted-foreground">
-                        {searchTerm ? "Try adjusting your search terms" : "Upload some documents to get started"}
+                      <p className="text-sm text-zinc-500 dark:text-gray-400">
+                        {searchTerm ? "Try adjusting your search terms" : "Upload some documents from the dashboard to get started"}
                       </p>
                     </div>
                   ) : (
@@ -194,10 +196,10 @@ export default function ChatPage() {
                           key={pdf.pdf_id}
                           onClick={() => handlePdfToggle(pdf.pdf_id)}
                           className={`
-                            group relative flex items-start space-x-3 p-3 rounded-lg border cursor-pointer transition-all duration-200
+                            group relative flex items-start space-x-3 p-4 rounded-xl border cursor-pointer transition-all duration-200
                             ${selectedPdfs.includes(pdf.pdf_id)
-                              ? "border-accent bg-accent/5 shadow-sm"
-                              : "border-border hover:border-accent/50 hover:bg-muted/30"
+                              ? "border-lime-500 bg-lime-50 dark:border-lime-accent dark:bg-lime-accent/5 shadow-sm"
+                              : "border-zinc-200 dark:border-white/5 hover:border-lime-500/50 dark:hover:border-lime-accent/50 hover:bg-zinc-50 dark:hover:bg-[#111] bg-white dark:bg-[#0A0A0A]"
                             }
                           `}
                         >
@@ -205,25 +207,25 @@ export default function ChatPage() {
                             id={pdf.pdf_id}
                             checked={selectedPdfs.includes(pdf.pdf_id)}
                             onCheckedChange={() => handlePdfToggle(pdf.pdf_id)}
-                            className="mt-1"
+                            className="mt-1 border-zinc-300 dark:border-gray-600 data-[state=checked]:bg-lime-600 data-[state=checked]:border-lime-600 dark:data-[state=checked]:bg-lime-accent dark:data-[state=checked]:border-lime-accent"
                           />
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1.5">
                               {getFileIcon(pdf.file_name)}
                               <Label
                                 htmlFor={pdf.pdf_id}
-                                className="font-medium cursor-pointer truncate block flex-1"
+                                className="font-bold text-sm text-zinc-900 dark:text-white cursor-pointer truncate block flex-1"
                               >
                                 {pdf.file_name}
                               </Label>
                             </div>
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-gray-400 font-medium">
                               <span>{pdf.page_count || "?"} pages</span>
                               <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${pdf.processing_status === "completed"
-                                  ? "bg-green-500/10 text-green-600 border-green-200"
-                                  : pdf.processing_status === "failed"
-                                    ? "bg-red-500/10 text-red-600 border-red-200"
-                                    : "bg-yellow-500/10 text-yellow-600 border-yellow-200"
+                                ? "bg-green-500/10 text-green-600 border-green-200"
+                                : pdf.processing_status === "failed"
+                                  ? "bg-red-500/10 text-red-600 border-red-200"
+                                  : "bg-yellow-500/10 text-yellow-600 border-yellow-200"
                                 }`}>
                                 {pdf.processing_status === "completed" ? (
                                   <CheckCircle className="h-3 w-3" />
@@ -240,54 +242,54 @@ export default function ChatPage() {
                       ))}
                     </div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </div>
 
             {/* Session Details Column */}
             <div className="lg:col-span-1 h-full flex flex-col gap-6 min-h-0">
-              <Card className="shadow-md">
-                <CardHeader>
-                  <CardTitle className="text-lg">Session Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
+              <div className="shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 overflow-hidden flex flex-col flex-shrink-0">
+                <div className="p-6 pb-4 border-b border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/[0.02]">
+                  <h2 className="text-lg font-bold text-zinc-900 dark:text-white">Session Details</h2>
+                </div>
+                <div className="p-6 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
                   <div className="space-y-2">
-                    <Label htmlFor="sessionName">Session Name</Label>
+                    <Label htmlFor="sessionName" className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Session Name</Label>
                     <Input
                       id="sessionName"
                       placeholder="e.g., Research Project Alpha"
                       value={sessionName}
                       onChange={(e) => setSessionName(e.target.value)}
-                      className="bg-background"
+                      className="bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl h-11 focus-visible:ring-1 focus-visible:ring-lime-accent text-zinc-900 dark:text-white font-medium"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label>AI Provider</Label>
+                    <Label className="text-sm font-semibold text-zinc-900 dark:text-gray-300">AI Provider</Label>
                     <Select
                       value={provider}
                       onValueChange={(value) => setProvider(value as LlmProvider)}
                     >
-                      <SelectTrigger className="w-full bg-background">
+                      <SelectTrigger className="w-full bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl h-11 focus:ring-1 focus:ring-lime-accent text-zinc-900 dark:text-white font-medium">
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="groq">Groq</SelectItem>
-                        <SelectItem value="cerebras">Cerebras</SelectItem>
+                      <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
+                        <SelectItem value="groq" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Groq</SelectItem>
+                        <SelectItem value="cerebras" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Cerebras</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <Label>Selected Documents</Label>
-                      <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">
+                      <Label className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Selected Documents</Label>
+                      <span className="text-xs font-bold text-zinc-500 dark:text-gray-400 bg-zinc-100 dark:bg-white/5 border border-zinc-200 dark:border-white/10 px-2 py-0.5 rounded-full">
                         {selectedPdfs.length}
                       </span>
                     </div>
-                    <div className="border rounded-md p-2 bg-muted/20 h-[150px] overflow-y-auto custom-scrollbar">
+                    <div className="border border-zinc-200 dark:border-white/10 rounded-xl p-3 bg-zinc-50/50 dark:bg-[#111] h-[150px] overflow-y-auto custom-scrollbar">
                       {selectedPdfs.length === 0 ? (
-                        <div className="h-full flex items-center justify-center text-muted-foreground text-sm italic">
+                        <div className="h-full flex items-center justify-center text-zinc-400 dark:text-gray-500 text-sm italic font-medium">
                           No documents selected
                         </div>
                       ) : (
@@ -295,15 +297,15 @@ export default function ChatPage() {
                           {selectedPdfs.map((pdfId) => {
                             const pdf = pdfs.find(p => p.pdf_id === pdfId);
                             return pdf ? (
-                              <div key={pdfId} className="flex items-center gap-2 text-sm bg-background p-2 rounded border shadow-sm">
+                              <div key={pdfId} className="flex items-center gap-2 text-sm bg-white dark:bg-[#1A1A1A] p-2.5 rounded-lg border border-zinc-200 dark:border-white/5 shadow-sm group hover:border-lime-200 dark:hover:border-lime-500/30 transition-colors">
                                 {getFileIcon(pdf.file_name)}
-                                <span className="truncate flex-1">{pdf.file_name}</span>
+                                <span className="truncate flex-1 font-medium text-zinc-900 dark:text-white">{pdf.file_name}</span>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handlePdfToggle(pdfId);
                                   }}
-                                  className="text-muted-foreground hover:text-destructive transition-colors"
+                                  className="text-zinc-400 hover:text-red-500 bg-zinc-50 dark:bg-white/5 hover:bg-red-50 dark:hover:bg-red-500/10 rounded p-1 transition-colors opacity-0 group-hover:opacity-100"
                                 >
                                   ×
                                 </button>
@@ -315,38 +317,39 @@ export default function ChatPage() {
                     </div>
                   </div>
 
-                  <Button
-                    onClick={handleCreateSession}
-                    disabled={isCreating || selectedPdfs.length === 0 || !sessionName.trim()}
-                    className="w-full premium-button h-11 text-base shadow-lg hover:shadow-xl transition-all"
-                  >
-                    {isCreating ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Creating Session...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Create Chat Session
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
+                  <div className="pt-2">
+                    <Button
+                      onClick={handleCreateSession}
+                      disabled={isCreating || selectedPdfs.length === 0 || !sessionName.trim()}
+                      className="w-full bg-lime-accent text-black h-12 rounded-xl font-bold text-base shadow-[0_4px_14px_0_rgba(163,230,53,0.39)] hover:bg-gradient-to-br hover:from-lime-accent hover:to-lime-400 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100 disabled:shadow-none"
+                    >
+                      {isCreating ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          Creating Session...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-5 w-5 mr-2" />
+                          Create Chat Session
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
 
-              <Card className="shadow-sm border-dashed">
-                <CardContent className="p-4">
+              <div className="bg-zinc-50 dark:bg-[#111] rounded-2xl border border-zinc-200 dark:border-white/10 overflow-hidden shadow-sm flex-shrink-0">
+                <div className="p-4">
                   <Button
                     variant="ghost"
-                    size="sm"
-                    className="w-full text-muted-foreground hover:text-foreground"
+                    className="w-full text-zinc-500 dark:text-gray-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 h-11 rounded-xl font-medium"
                     onClick={() => router.push("/dashboard")}
                   >
                     ← Back to Dashboard
                   </Button>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </div>
           </div>
         </div>
