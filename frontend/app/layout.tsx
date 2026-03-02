@@ -31,6 +31,8 @@ export const metadata: Metadata = {
   generator: "v0.app",
 }
 
+import { ThemeProvider } from "@/components/theme-provider"
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -39,9 +41,11 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} ${manrope.variable} ${plusJakarta.variable} antialiased`} suppressHydrationWarning>
       <body className="font-sans">
-        <AuthProvider> {/* Wrap with AuthProvider */}
-          {children}
-        </AuthProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <AuthProvider> {/* Wrap with AuthProvider */}
+            {children}
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
