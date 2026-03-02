@@ -10,6 +10,7 @@ import { PdfList } from "@/components/dashboard/pdf-list"
 import { SessionList } from "@/components/dashboard/session-list"
 import { Loader2, FileText, Sparkles, Upload, MessageSquare } from "lucide-react"
 import { api } from "@/lib/api"
+import { motion } from "framer-motion"
 
 export default function DashboardPage() {
   const { user, isLoading, isAuthenticated } = useAuth()
@@ -54,10 +55,10 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#050505]">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-accent mx-auto mb-4" />
-          <p className="text-muted-foreground font-serif">Loading your dashboard...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-lime-accent mx-auto mb-4" />
+          <p className="text-gray-500 font-medium">Loading your dashboard...</p>
         </div>
       </div>
     )
@@ -68,54 +69,62 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden">
-      {/* Background effects matching your theme */}
-      <div className="absolute inset-0 bg-gradient-to-br from-background via-muted/10 to-background" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(16,185,129,0.08),transparent_50%)] bg-[radial-gradient(circle_at_70%_80%,rgba(59,130,246,0.06),transparent_50%)]" />
-
-      {/* Floating document icons */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <FileText className="absolute top-20 left-10 w-6 h-6 text-accent/20 animate-document-float" style={{ animationDelay: "0s" }} />
-        <FileText className="absolute top-40 right-20 w-4 h-4 text-accent/15 animate-document-float" style={{ animationDelay: "2s" }} />
-        <FileText className="absolute bottom-32 left-1/4 w-5 h-5 text-accent/18 animate-document-float" style={{ animationDelay: "4s" }} />
-      </div>
+    <div className="min-h-screen bg-transparent relative overflow-x-hidden">
+      {/* Background Gradient Effect matching landing */}
+      <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-lime-accent/5 dark:bg-lime-accent/5 blur-[120px] rounded-full pointer-events-none -z-10 translate-x-1/3 -translate-y-1/3" />
+      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-500/5 dark:bg-blue-500/5 blur-[100px] rounded-full pointer-events-none -z-10 -translate-x-1/2 translate-y-1/2" />
 
       <div className="relative z-10">
         <DashboardHeader user={user} />
 
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex gap-8">
+          <div className="flex flex-col lg:flex-row gap-8">
             {/* Sidebar */}
-            <DashboardSidebar
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-              stats={stats}
-            />
+            <div className="w-full lg:w-80 shrink-0">
+              <DashboardSidebar
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                stats={stats}
+              />
+            </div>
 
             {/* Main Content */}
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               {/* Welcome Card */}
-              <div className="premium-card p-6 mb-8 animate-slide-up">
-                <div className="flex items-center gap-3 mb-4">
-                  <Sparkles className="h-5 w-5 text-accent animate-pulse" />
-                  <h2 className="text-2xl font-sans font-semibold">
-                    Welcome back, <span className="gradient-text">{user?.name}</span>!
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg dark:shadow-[0_0_40px_-10px_rgba(255,255,255,0.05)] p-6 sm:p-8 mb-8"
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-lime-accent/20 text-lime-accent">
+                    <Sparkles className="h-4 w-4 animate-pulse group-hover:scale-110 transition-transform" />
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-dark dark:text-white">
+                    Welcome back, <span className="text-gray-500 dark:text-gray-400">{user?.name}</span>!
                   </h2>
                 </div>
-                <p className="text-muted-foreground font-serif">
-                  Ready to chat with your documents? Upload Document or continue an existing conversation.
+                <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-2">
+                  Ready to chat with your documents? Upload a new document or continue an existing conversation.
                 </p>
-              </div>
+              </motion.div>
 
               {/* Tab Content */}
-              {activeTab === "pdfs" ? (
-                <div className="space-y-8">
-                  <PdfUpload />
-                  <PdfList />
-                </div>
-              ) : (
-                <SessionList />
-              )}
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                {activeTab === "pdfs" ? (
+                  <div className="space-y-8">
+                    <PdfUpload />
+                    <PdfList />
+                  </div>
+                ) : (
+                  <SessionList />
+                )}
+              </motion.div>
             </div>
           </div>
         </div>

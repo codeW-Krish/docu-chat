@@ -2,9 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Upload, FileText, X, Loader2, CloudUpload, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Minimize2, Maximize2 } from "lucide-react"
+import { Upload, FileText, X, Loader2, CloudUpload, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
+import { motion, AnimatePresence } from "framer-motion"
 
 // --- Upload Queue Types ---
 type QueueItemStatus = 'queued' | 'uploading' | 'success' | 'error'
@@ -188,25 +189,27 @@ export function PdfUpload() {
   }
 
   return (
-    <div className="premium-card p-6 animate-slide-up">
-      <div className="flex items-center gap-3 mb-4">
-        <CloudUpload className="h-5 w-5 text-accent" />
-        <h3 className="text-xl font-sans font-semibold">Upload Documents</h3>
+    <div className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg p-6 sm:p-8">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="p-2 rounded-lg bg-lime-accent/10">
+          <CloudUpload className="h-5 w-5 text-lime-accent" />
+        </div>
+        <h3 className="text-xl font-extrabold text-dark dark:text-white tracking-tight">Upload Documents</h3>
         {hasActiveUploads && (
-          <span className="ml-auto text-xs text-accent font-medium flex items-center gap-1.5 bg-accent/10 px-2 py-1 rounded-full">
+          <span className="ml-auto text-xs text-lime-accent font-semibold flex items-center gap-1.5 bg-lime-accent/10 px-3 py-1.5 rounded-full border border-lime-accent/20">
             <Loader2 className="h-3 w-3 animate-spin" />
             Uploading...
           </span>
         )}
       </div>
 
-      {/* Drop Zone — always interactive, never blocked */}
+      {/* Drop Zone */}
       <div
         className={`
-          border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 interactive-hover cursor-pointer
+          border-2 border-dashed rounded-xl p-8 sm:p-12 text-center transition-all duration-300 cursor-pointer flex flex-col items-center justify-center
           ${isDragging
-            ? "border-accent bg-accent/5"
-            : "border-border/50 hover:border-accent/30"
+            ? "border-lime-accent bg-lime-accent/5"
+            : "border-gray-200 dark:border-white/10 hover:border-lime-accent/50 hover:bg-gray-50 dark:hover:bg-white/5 bg-gray-50/50 dark:bg-[#111]"
           }
         `}
         onDragOver={handleDragOver}
@@ -223,123 +226,144 @@ export function PdfUpload() {
           onChange={(e) => e.target.files && e.target.files.length > 0 && enqueueFiles(Array.from(e.target.files))}
         />
 
-        <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-        <p className="text-lg font-medium mb-2">Drop your documents here</p>
-        <p className="text-muted-foreground mb-4">or click to browse — uploads run in the background</p>
-        <Button className="premium-button">
+        <div className="w-16 h-16 rounded-2xl bg-white dark:bg-[#1a1a1a] shadow-sm border border-gray-100 dark:border-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <FileText className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+        </div>
+        <p className="text-lg font-bold text-dark dark:text-white mb-2">Drop your documents here</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">or click to browse — uploads run in the background</p>
+        <Button
+          type="button"
+          className="bg-lime-accent text-black h-10 px-6 rounded-full font-bold text-sm shadow-[0_4px_14px_0_rgba(163,230,53,0.39)] hover:bg-gradient-to-br hover:from-lime-accent hover:to-lime-400 transition-all duration-300 hover:scale-[1.05] active:scale-[0.95]"
+        >
           <Upload className="w-4 h-4 mr-2" />
           Select Documents
         </Button>
-        <p className="text-xs text-muted-foreground mt-4">
-          Maximum file size: 50MB • PDF, DOCX, PPTX, TXT, CSV
+        <p className="text-xs text-gray-400 mt-6 font-medium">
+          PDF, DOCX, PPTX, TXT, CSV (Max 50MB)
         </p>
       </div>
 
       {/* Upload Queue Widget */}
-      {queue.length > 0 && (
-        <div className="mt-4 border rounded-xl overflow-hidden bg-card shadow-sm">
-          {/* Queue Header */}
-          <div
-            className="flex items-center justify-between px-4 py-2.5 bg-muted/30 cursor-pointer select-none hover:bg-muted/50 transition-colors"
-            onClick={() => setIsQueueMinimized(!isQueueMinimized)}
+      <AnimatePresence>
+        {queue.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mt-6 border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden bg-white dark:bg-[#111] shadow-sm"
           >
-            <div className="flex items-center gap-2 text-sm font-medium">
-              {hasActiveUploads ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
-              ) : errorCount > 0 ? (
-                <AlertCircle className="h-3.5 w-3.5 text-orange-500" />
-              ) : (
-                <CheckCircle className="h-3.5 w-3.5 text-green-500" />
-              )}
-              <span>
-                {hasActiveUploads
-                  ? `Uploading ${completedCount + errorCount} / ${totalCount}`
-                  : `${completedCount} uploaded${errorCount > 0 ? `, ${errorCount} failed` : ''}`
-                }
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              {!hasActiveUploads && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); clearCompleted() }}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Clear
-                </button>
-              )}
-              {isQueueMinimized ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-            </div>
-          </div>
-
-          {/* Overall Progress Bar */}
-          {hasActiveUploads && (
-            <div className="h-1 bg-muted/30">
-              <div
-                className="h-full bg-accent transition-all duration-300 ease-out"
-                style={{ width: `${overallProgress}%` }}
-              />
-            </div>
-          )}
-
-          {/* Queue Items */}
-          {!isQueueMinimized && (
-            <div className="max-h-52 overflow-y-auto custom-scrollbar divide-y divide-border/50">
-              {queue.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 px-4 py-2.5 text-sm group">
-                  {/* Status Icon */}
-                  <div className="shrink-0">
-                    {item.status === 'uploading' && <Loader2 className="h-4 w-4 animate-spin text-accent" />}
-                    {item.status === 'queued' && <CloudUpload className="h-4 w-4 text-muted-foreground" />}
-                    {item.status === 'success' && <CheckCircle className="h-4 w-4 text-green-500" />}
-                    {item.status === 'error' && <AlertCircle className="h-4 w-4 text-red-500" />}
-                  </div>
-
-                  {/* File Info + Progress */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium">{item.file.name}</span>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {item.status === 'uploading' && `${Math.round(item.progress)}%`}
-                        {item.status === 'queued' && 'Queued'}
-                        {item.status === 'success' && 'Done'}
-                        {item.status === 'error' && (item.message || 'Failed')}
-                      </span>
-                    </div>
-                    {item.status === 'uploading' && (
-                      <div className="mt-1 h-1 bg-muted/50 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-accent rounded-full transition-all duration-300"
-                          style={{ width: `${item.progress}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {item.status === 'error' && (
-                      <button
-                        onClick={() => retryItem(item.id)}
-                        className="text-xs text-accent hover:text-accent/80 font-medium px-1.5 py-0.5 rounded hover:bg-accent/10 transition-colors"
-                      >
-                        Retry
-                      </button>
-                    )}
-                    {(item.status === 'success' || item.status === 'error') && (
-                      <button
-                        onClick={() => removeItem(item.id)}
-                        className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
+            {/* Queue Header */}
+            <div
+              className="flex items-center justify-between px-5 py-3 bg-gray-50 dark:bg-[#1A1A1A] cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-white/5 transition-colors border-b border-gray-200 dark:border-white/10"
+              onClick={() => setIsQueueMinimized(!isQueueMinimized)}
+            >
+              <div className="flex items-center gap-2.5 text-sm font-bold text-dark dark:text-white">
+                {hasActiveUploads ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-lime-accent" />
+                ) : errorCount > 0 ? (
+                  <AlertCircle className="h-4 w-4 text-red-500" />
+                ) : (
+                  <CheckCircle className="h-4 w-4 text-lime-accent" />
+                )}
+                <span>
+                  {hasActiveUploads
+                    ? `Uploading ${completedCount + errorCount} / ${totalCount}`
+                    : `${completedCount} uploaded${errorCount > 0 ? `, ${errorCount} failed` : ''}`
+                  }
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                {!hasActiveUploads && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); clearCompleted() }}
+                    className="text-xs font-semibold text-gray-500 hover:text-dark dark:hover:text-white transition-colors uppercase tracking-wider bg-gray-200 dark:bg-white/10 px-2 py-1 rounded"
+                  >
+                    Clear All
+                  </button>
+                )}
+                <div className="p-1 rounded bg-gray-200 dark:bg-white/10">
+                  {isQueueMinimized ? <ChevronUp className="h-3 w-3 text-dark dark:text-white" /> : <ChevronDown className="h-3 w-3 text-dark dark:text-white" />}
                 </div>
-              ))}
+              </div>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* Overall Progress Bar */}
+            {hasActiveUploads && (
+              <div className="h-1 bg-gray-200 dark:bg-white/5">
+                <div
+                  className="h-full bg-lime-accent transition-all duration-300 ease-out"
+                  style={{ width: `${overallProgress}%` }}
+                />
+              </div>
+            )}
+
+            {/* Queue Items */}
+            <AnimatePresence>
+              {!isQueueMinimized && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="max-h-60 overflow-y-auto custom-scrollbar divide-y divide-gray-100 dark:divide-white/5"
+                >
+                  {queue.map((item) => (
+                    <div key={item.id} className="flex items-center gap-3 px-5 py-3.5 text-sm group hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                      {/* Status Icon */}
+                      <div className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-white/5">
+                        {item.status === 'uploading' && <Loader2 className="h-3.5 w-3.5 animate-spin text-lime-accent" />}
+                        {item.status === 'queued' && <CloudUpload className="h-3.5 w-3.5 text-gray-400" />}
+                        {item.status === 'success' && <CheckCircle className="h-3.5 w-3.5 text-lime-accent" />}
+                        {item.status === 'error' && <AlertCircle className="h-3.5 w-3.5 text-red-500" />}
+                      </div>
+
+                      {/* File Info + Progress */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="truncate font-semibold text-dark dark:text-white">{item.file.name}</span>
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded-md">
+                            {item.status === 'uploading' && `${Math.round(item.progress)}%`}
+                            {item.status === 'queued' && 'Queued'}
+                            {item.status === 'success' && 'Done'}
+                            {item.status === 'error' && (item.message || 'Failed')}
+                          </span>
+                        </div>
+                        {item.status === 'uploading' && (
+                          <div className="h-1.5 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-lime-accent rounded-full transition-all duration-300"
+                              style={{ width: `${item.progress}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {item.status === 'error' && (
+                          <button
+                            onClick={() => retryItem(item.id)}
+                            className="text-xs text-lime-accent hover:text-black dark:hover:text-lime-accent font-bold px-2 py-1.5 rounded-md hover:bg-lime-accent/20 transition-colors"
+                          >
+                            Retry
+                          </button>
+                        )}
+                        {(item.status === 'success' || item.status === 'error') && (
+                          <button
+                            onClick={() => removeItem(item.id)}
+                            className="text-gray-400 hover:text-red-500 transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-500/10"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

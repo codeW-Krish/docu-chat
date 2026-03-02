@@ -1,18 +1,5 @@
 // File: app/dashboard/layout.tsx
 import type { Metadata } from "next";
-import { Geist, Manrope } from "next/font/google";
-
-const geist = Geist({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-geist",
-});
-
-const manrope = Manrope({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-manrope",
-});
 
 export const metadata: Metadata = {
   title: "Dashboard - AI DocuChat",
@@ -25,15 +12,10 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    // <html lang="en" className={`${geist.variable} ${manrope.variable} antialiased`}>
-    //   <body className="font-sans">
-    //     {/* Wrapper div for background and text color to fix hydration */}
-    //     <div className="bg-background text-foreground min-h-screen">
-    //       {children}
-    //     </div>
-    //   </body>
-    // </html>
-    <div className="bg-background text-foreground min-h-screen">
+    <div
+      className="bg-white dark:bg-[#050505] text-dark dark:text-white min-h-screen selection:bg-lime-accent/30 selection:text-dark dark:selection:text-white transition-colors duration-300"
+      style={{ fontFamily: 'var(--font-plus-jakarta), "Plus Jakarta Sans", sans-serif' }}
+    >
       {children}
     </div>
   );

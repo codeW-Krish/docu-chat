@@ -93,23 +93,21 @@ export function PdfList() {
 
   if (isLoading) {
     return (
-      <div className="premium-card p-6 animate-slide-up">
-        <div className="flex items-center gap-3 mb-4">
-          <FileText className="h-5 w-5 text-accent" />
-          <h3 className="text-xl font-sans font-semibold">Your Documents</h3>
+      <div className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg p-6 sm:p-8">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 rounded-lg bg-lime-accent/10">
+            <FileText className="h-5 w-5 text-lime-accent" />
+          </div>
+          <h3 className="text-xl font-extrabold text-dark dark:text-white tracking-tight">Your Documents</h3>
         </div>
-        <div className="space-y-3">
+        <div className="space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="glass-morphism p-4 rounded-lg animate-pulse">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <FileText className="h-5 w-5 text-accent" />
-                  <div>
-                    <div className="font-sans font-medium bg-muted/50 h-4 w-40 rounded mb-2"></div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground font-serif">
-                      <div className="bg-muted/50 h-3 w-24 rounded"></div>
-                    </div>
-                  </div>
+            <div key={i} className="bg-gray-50 dark:bg-[#111] p-4 rounded-xl border border-gray-100 dark:border-white/5 animate-pulse flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-white/10"></div>
+                <div>
+                  <div className="bg-gray-200 dark:bg-white/10 h-4 w-40 rounded mb-2"></div>
+                  <div className="bg-gray-100 dark:bg-white/5 h-3 w-24 rounded"></div>
                 </div>
               </div>
             </div>
@@ -120,33 +118,41 @@ export function PdfList() {
   }
 
   return (
-    <div className="premium-card p-6 animate-slide-up">
-      <div className="flex items-center gap-3 mb-4">
-        <FileText className="h-5 w-5 text-accent" />
-        <h3 className="text-xl font-sans font-semibold">Your Documents</h3>
-        <span className="glass-morphism px-2 py-1 rounded-full text-sm font-medium">
+    <div className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg p-6 sm:p-8 mt-8">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="p-2 rounded-lg bg-lime-accent/10">
+          <FileText className="h-5 w-5 text-lime-accent" />
+        </div>
+        <h3 className="text-xl font-extrabold text-dark dark:text-white tracking-tight">Your Documents</h3>
+        <span className="ml-auto bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 px-3 py-1 rounded-full text-xs font-bold text-gray-500 dark:text-gray-400">
           {pdfs.length} files
         </span>
       </div>
 
       {pdfs.length === 0 ? (
-        <div className="text-center py-8">
-          <FileText className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
-          <p className="text-muted-foreground font-serif">No Documents uploaded yet</p>
-          <p className="text-sm text-muted-foreground mt-1">Upload your first Document to start chatting!</p>
+        <div className="text-center py-12 px-4 rounded-xl border-2 border-dashed border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#111]">
+          <div className="w-16 h-16 rounded-2xl bg-white dark:bg-[#1a1a1a] shadow-sm border border-gray-100 dark:border-white/5 flex items-center justify-center mx-auto mb-4">
+            <FileText className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+          </div>
+          <p className="text-lg font-bold text-dark dark:text-white mb-2">No Documents uploaded yet</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Upload your first document above to start chatting!</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {pdfs.map((pdf) => (
-            <div key={pdf.pdf_id} className="glass-morphism p-4 rounded-lg transition-all hover:bg-muted/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 flex-1">
-                  {getFileIcon(pdf.file_name)}
+            <div key={pdf.pdf_id} className="bg-gray-50 dark:bg-[#111] p-4 sm:p-5 rounded-xl border border-gray-100 dark:border-white/5 transition-all duration-300 hover:border-lime-accent/30 hover:shadow-md group">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4 flex-1">
+                  <div className="w-10 h-10 rounded-lg bg-white dark:bg-[#1a1a1a] shadow-sm flex items-center justify-center border border-gray-100 dark:border-white/5 shrink-0">
+                    {getFileIcon(pdf.file_name)}
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-sans font-medium truncate">{pdf.file_name}</div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground font-serif">
-                      {getStatusIcon(pdf.processing_status)}
-                      <span>{getStatusText(pdf.processing_status)}</span>
+                    <div className="font-semibold text-dark dark:text-white truncate mb-1">{pdf.file_name}</div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-1.5 bg-white dark:bg-[#1a1a1a] px-2 py-0.5 rounded-md border border-gray-100 dark:border-white/5 shadow-sm">
+                        {getStatusIcon(pdf.processing_status)}
+                        <span className="text-dark dark:text-gray-300">{getStatusText(pdf.processing_status)}</span>
+                      </div>
                       {pdf.page_count && (
                         <span>• {pdf.page_count} pages</span>
                       )}
@@ -155,24 +161,25 @@ export function PdfList() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0 pt-3 sm:pt-0 border-t border-gray-200 dark:border-white/5 sm:border-0 pl-14 sm:pl-0">
                   <Button
                     size="sm"
-                    className="premium-button text-xs"
+                    className="bg-lime-accent text-black rounded-full font-bold shadow-[0_4px_14px_0_rgba(163,230,53,0.39)] hover:scale-105 active:scale-95 transition-all text-xs h-9 px-4 disabled:opacity-50 disabled:hover:scale-100"
                     disabled={pdf.processing_status !== "completed"}
                     onClick={() => handleChat(pdf)}
                   >
-                    <MessageSquare className="h-3 w-3 mr-1" />
+                    <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
                     Chat
                   </Button>
 
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     onClick={() => handleDeletePdf(pdf.pdf_id)}
-                    className="text-muted-foreground hover:text-destructive interactive-hover"
+                    className="h-9 w-9 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors shrink-0"
+                    title="Delete document"
                   >
-                    <Trash2 className="h-3 w-3" />
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </div>

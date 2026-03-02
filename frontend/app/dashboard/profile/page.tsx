@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, User, Mail, Lock, Save, ArrowLeft } from "lucide-react"
+import { Loader2, User, Mail, Lock, Save, ArrowLeft, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { api } from "@/lib/api"
 
@@ -72,78 +72,89 @@ export default function ProfilePage() {
     }
 
     return (
-        <div className="container mx-auto px-4 py-8 max-w-2xl">
-            <div className="mb-6">
+        <div className="container mx-auto px-4 py-8 max-w-2xl mt-4">
+            <div className="mb-8">
                 <Link
                     href="/dashboard"
-                    className="inline-flex items-center text-sm text-muted-foreground hover:text-accent transition-colors mb-4"
+                    className="inline-flex items-center text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-dark dark:hover:text-white transition-colors mb-6 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 px-4 py-2 rounded-full"
                 >
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     Back to Dashboard
                 </Link>
-                <h1 className="text-3xl font-bold font-sans tracking-tight">
-                    Profile <span className="gradient-text">Settings</span>
-                </h1>
-                <p className="text-muted-foreground font-serif mt-2">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-lime-accent/10">
+                        <User className="h-6 w-6 text-lime-accent" />
+                    </div>
+                    <h1 className="text-3xl font-extrabold text-dark dark:text-white tracking-tight">
+                        Profile <span className="bg-gradient-to-r from-lime-accent to-lime-500 bg-clip-text text-transparent">Settings</span>
+                    </h1>
+                </div>
+                <p className="text-gray-500 dark:text-gray-400 mt-3 text-sm sm:text-base">
                     Manage your account settings and preferences
                 </p>
             </div>
 
-            <Card className="premium-card animate-slide-up">
-                <CardHeader>
-                    <CardTitle>Personal Information</CardTitle>
-                    <CardDescription>Update your personal details here.</CardDescription>
+            <Card className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg animate-slide-up border-0 overflow-hidden">
+                <CardHeader className="bg-gray-50/50 dark:bg-white/[0.02] border-b border-gray-100 dark:border-white/5 pb-6">
+                    <CardTitle className="text-xl font-bold">Personal Information</CardTitle>
+                    <CardDescription className="text-gray-500 dark:text-gray-400">Update your personal details here.</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-6">
                     {message && (
-                        <Alert variant={message.type === "error" ? "destructive" : "default"} className={`mb-6 ${message.type === "success" ? "bg-green-500/10 text-green-500 border-green-500/20" : ""}`}>
-                            <AlertDescription>{message.text}</AlertDescription>
+                        <Alert className={`mb-6 border-0 rounded-xl ${message.type === "success" ? "bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-500" : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-500"}`}>
+                            <AlertDescription className="font-medium text-sm flex items-center gap-2">
+                                {message.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                                {message.text}
+                            </AlertDescription>
                         </Alert>
                     )}
 
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <div className="space-y-2">
-                            <Label htmlFor="email">Email Address</Label>
+                            <Label htmlFor="email" className="text-sm font-semibold text-dark dark:text-gray-300">Email Address</Label>
                             <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                                 <Input
                                     id="email"
                                     value={email}
                                     disabled
-                                    className="pl-10 glass-morphism opacity-70 cursor-not-allowed"
+                                    className="pl-10 h-12 bg-gray-50 dark:bg-[#111] border-gray-200 dark:border-white/10 rounded-xl opacity-70 cursor-not-allowed"
                                 />
                             </div>
-                            <p className="text-xs text-muted-foreground">Email address cannot be changed</p>
+                            <p className="text-xs text-gray-500 font-medium">Email address cannot be changed</p>
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="name">Full Name</Label>
+                            <Label htmlFor="name" className="text-sm font-semibold text-dark dark:text-gray-300">Full Name</Label>
                             <div className="relative">
-                                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                                 <Input
                                     id="name"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
-                                    className="pl-10 glass-morphism"
+                                    className="pl-10 h-12 bg-gray-50 dark:bg-[#111] border-gray-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent"
                                     placeholder="Enter your name"
                                     required
                                 />
                             </div>
                         </div>
 
-                        <div className="pt-4 border-t border-border/50">
-                            <h3 className="text-lg font-medium mb-4">Change Password</h3>
-                            <div className="grid gap-4">
+                        <div className="pt-8 border-t border-gray-100 dark:border-white/10">
+                            <h3 className="text-lg font-bold text-dark dark:text-white mb-6 flex items-center gap-2">
+                                <Lock className="w-5 h-5 text-gray-400" />
+                                Change Password
+                            </h3>
+                            <div className="grid gap-5 shadow-sm p-5 sm:p-6 border border-gray-100 dark:border-white/5 rounded-2xl bg-gray-50/50 dark:bg-white/[0.02]">
                                 <div className="space-y-2">
-                                    <Label htmlFor="password">New Password</Label>
+                                    <Label htmlFor="password" className="text-sm font-semibold text-dark dark:text-gray-300">New Password</Label>
                                     <div className="relative">
-                                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                                         <Input
                                             id="password"
                                             type="password"
                                             value={password}
                                             onChange={(e) => setPassword(e.target.value)}
-                                            className="pl-10 glass-morphism"
+                                            className="pl-10 h-12 bg-white dark:bg-[#111] border-gray-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent"
                                             placeholder="Leave blank to keep current"
                                             minLength={8}
                                         />
@@ -151,15 +162,15 @@ export default function ProfilePage() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                                    <Label htmlFor="confirmPassword" className="text-sm font-semibold text-dark dark:text-gray-300">Confirm New Password</Label>
                                     <div className="relative">
-                                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                                         <Input
                                             id="confirmPassword"
                                             type="password"
                                             value={confirmPassword}
                                             onChange={(e) => setConfirmPassword(e.target.value)}
-                                            className="pl-10 glass-morphism"
+                                            className="pl-10 h-12 bg-white dark:bg-[#111] border-gray-200 dark:border-white/10 rounded-xl focus-visible:ring-1 focus-visible:ring-lime-accent focus-visible:border-lime-accent"
                                             placeholder="Confirm new password"
                                         />
                                     </div>
@@ -167,20 +178,20 @@ export default function ProfilePage() {
                             </div>
                         </div>
 
-                        <div className="flex justify-end pt-4">
+                        <div className="flex justify-end pt-6 mt-4">
                             <Button
                                 type="submit"
-                                className="premium-button min-w-[120px]"
+                                className="bg-lime-accent text-black rounded-full font-bold shadow-[0_4px_14px_0_rgba(163,230,53,0.39)] hover:scale-[1.02] active:scale-95 transition-all h-12 px-8 min-w-[160px]"
                                 disabled={isLoading}
                             >
                                 {isLoading ? (
                                     <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                                         Saving...
                                     </>
                                 ) : (
                                     <>
-                                        <Save className="mr-2 h-4 w-4" />
+                                        <Save className="mr-2 h-5 w-5" />
                                         Save Changes
                                     </>
                                 )}
