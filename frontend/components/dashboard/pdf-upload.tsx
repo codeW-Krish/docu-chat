@@ -90,10 +90,13 @@ export function PdfUpload() {
                       activeUploads.current--
                       processQueue()
                     } else {
-                      // Still processing, maybe slowly increase progress bar artificially
+                      // Sync live telemetry progress from Python db updates
+                      const liveProgress = statusResult.pdf.processing_progress || 0
                       setQueue(q => q.map(qi => {
-                        if (qi.id === item.id && qi.progress < 95) {
-                          return { ...qi, progress: qi.progress + 5 }
+                        if (qi.id === item.id) {
+                          // Ensure we show at least 50% since the upload finished
+                          const displayProgress = Math.max(50, liveProgress)
+                          return { ...qi, progress: displayProgress, message: `Processing AI (${displayProgress}%)...` }
                         }
                         return qi
                       }))

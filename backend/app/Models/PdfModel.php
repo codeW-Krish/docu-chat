@@ -12,7 +12,7 @@ class PdfModel extends Model
     protected $returnType = 'object';
     protected $allowedFields = [
         'pdf_id', 'user_id', 'file_name', 'file_path', 
-        'file_hash', 'file_size', 'page_count', 'uploaded_at', 'processing_status'
+        'file_hash', 'file_size', 'page_count', 'uploaded_at', 'processing_status', 'processing_progress'
     ];
     protected $useSoftDeletes   = false;
     protected $protectFields    = true;

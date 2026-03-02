@@ -281,7 +281,16 @@ class DocumentProcessor:
             
             logger.info(f"Extracted {total_text_length} characters from {len(pages_data)} pages/sections")
             
-            # Get database connection
+            # Open a secondary connection strictly for live UI telemetry
+            telemetry_conn = get_db_connection()
+            telemetry_conn.autocommit = True
+            try:
+                with telemetry_conn.cursor() as t_cursor:
+                    t_cursor.execute("UPDATE pdfs SET processing_progress = 30 WHERE pdf_id = %s", (pdf_id,))
+            except Exception as e:
+                logger.warning(f"Telemetry update failed: {e}")
+                
+            # Get database connection for main transaction
             conn = get_db_connection()
             cursor = conn.cursor()
             
@@ -338,11 +347,21 @@ class DocumentProcessor:
                     logger.error(f"Failed to process chunk {chunk_data['chunk_index']}: {str(chunk_error)}")
                     # Continue with other chunks
                     continue
+                    
+                # Calculate real-time percentage (30% to 95%) and stream it via telemetry
+                if successful_chunks % 5 == 0 or successful_chunks == len(all_chunks):
+                    # Progress bounds: 30% base + up to 65% for vectorization
+                    current_progress = 30 + int((successful_chunks / max(1, len(all_chunks))) * 65)
+                    try:
+                        with telemetry_conn.cursor() as t_cursor:
+                            t_cursor.execute("UPDATE pdfs SET processing_progress = %s WHERE pdf_id = %s", (current_progress, pdf_id))
+                    except Exception as e:
+                        pass
             
-            # Update PDF processing status
+            # Update PDF processing status to 100% completed
             cursor.execute("""
                 UPDATE pdfs 
-                SET processing_status = 'completed', page_count = %s
+                SET processing_status = 'completed', processing_progress = 100, page_count = %s
                 WHERE pdf_id = %s
             """, (len(pages_data), pdf_id))
             
@@ -373,7 +392,7 @@ class DocumentProcessor:
             # Update PDF status to error
             if conn:
                 try:
-                    cursor.execute("UPDATE pdfs SET processing_status = 'error' WHERE pdf_id = %s", (pdf_id,))
+                    cursor.execute("UPDATE pdfs SET processing_status = 'failed' WHERE pdf_id = %s", (pdf_id,))
                     conn.commit()
                 except Exception as update_error:
                     logger.error(f"Failed to update document status: {str(update_error)}")
@@ -395,3 +414,6 @@ class DocumentProcessor:
             # Close connection
             if conn:
                 conn.close()
+                
+            if 'telemetry_conn' in locals() and telemetry_conn:
+                telemetry_conn.close()

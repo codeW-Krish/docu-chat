@@ -1,0 +1,64 @@
+{
+    "title": "CodeIgniter\\Exceptions\\PageNotFoundException",
+    "type": "CodeIgniter\\Exceptions\\PageNotFoundException",
+    "code": 404,
+    "message": "Can't find a route for 'POST: api/pdfs/upload-chunk'.",
+    "file": "/var/www/html/backend/vendor/codeigniter4/framework/system/CodeIgniter.php",
+    "line": 983,
+    "trace": [
+        {
+            "file": "/var/www/html/backend/vendor/codeigniter4/framework/system/CodeIgniter.php",
+            "line": 983,
+            "function": "forPageNotFound",
+            "class": "CodeIgniter\\Exceptions\\PageNotFoundException",
+            "type": "::",
+            "args": [
+                "Can't find a route for 'POST: api/pdfs/upload-chunk'."
+            ]
+        },
+        {
+            "file": "/var/www/html/backend/vendor/codeigniter4/framework/system/CodeIgniter.php",
+            "line": 360,
+            "function": "display404errors",
+            "class": "CodeIgniter\\CodeIgniter",
+            "type": "->",
+            "args": [
+                {}
+            ]
+        },
+        {
+            "file": "/var/www/html/backend/vendor/codeigniter4/framework/system/Boot.php",
+            "line": 363,
+            "function": "run",
+            "class": "CodeIgniter\\CodeIgniter",
+            "type": "->",
+            "args": []
+        },
+        {
+            "file": "/var/www/html/backend/vendor/codeigniter4/framework/system/Boot.php",
+            "line": 68,
+            "function": "runCodeIgniter",
+            "class": "CodeIgniter\\Boot",
+            "type": "::",
+            "args": [
+                {}
+            ]
+        },
+        {
+            "file": "/var/www/html/backend/public/index.php",
+            "line": 59,
+            "function": "bootWeb",
+            "class": "CodeIgniter\\Boot",
+            "type": "::",
+            "args": [
+                {
+                    "systemDirectory": "/var/www/html/backend/app/Config/../../vendor/codeigniter4/framework/system",
+                    "appDirectory": "/var/www/html/backend/app/Config/..",
+                    "writableDirectory": "/var/www/html/backend/app/Config/../../writable",
+                    "testsDirectory": "/var/www/html/backend/app/Config/../../tests",
+                    "viewDirectory": "/var/www/html/backend/app/Config/../Views"
+                }
+            ]
+        }
+    ]
+}
