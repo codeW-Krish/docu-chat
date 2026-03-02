@@ -1026,9 +1026,7 @@ export default function ChatSessionPage() {
     loadSessionData(resolvedProvider);
   }, [sessionId, searchParams]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  // Removed unconditional auto-scroll to fix UX scroll jump bug
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -1180,86 +1178,88 @@ export default function ChatSessionPage() {
     if (!textOverride) setNewMessage("");
     setIsSending(true);
 
+    const tempUserMessage: ChatMessage = {
+      message_id: `temp-user-${Date.now()}`,
+      session_id: sessionId,
+      sender: 'user',
+      message_text: messageToSend,
+      created_at: new Date().toISOString(),
+    };
+
+    const tempAiMessage: ChatMessage = {
+      message_id: `temp-ai-${Date.now()}`,
+      session_id: sessionId,
+      sender: 'ai',
+      message_text: "",
+      references: [],
+      suggested_questions: [],
+      created_at: new Date().toISOString(),
+    };
+
     try {
-      // Add user message to UI immediately
-      const tempUserMessage: ChatMessage = {
-        message_id: `temp-${Date.now()}`,
-        session_id: sessionId,
-        sender: 'user',
-        message_text: messageToSend,
-        created_at: new Date().toISOString()
+      // Add user message and empty AI message to UI immediately
+      setMessages(prev => [...prev, tempUserMessage, tempAiMessage]);
+
+      // Auto-scroll ONCE when user sends the message
+      setTimeout(() => scrollToBottom(), 100);
+
+      const updateAiMessage = (updates: Partial<ChatMessage>) => {
+        setMessages(prev => prev.map(msg =>
+          msg.message_id === tempAiMessage.message_id
+            ? { ...msg, ...updates }
+            : msg
+        ));
       };
-      setMessages(prev => [...prev, tempUserMessage]);
 
-      // Add timeout handling
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Request timeout - AI is taking longer than expected')), 150000); // 2.5 minutes
-      });
+      await api.sendMessageStream(
+        sessionId,
+        messageToSend,
+        Array.from(selectedPdfIds),
+        provider,
+        (chunk) => {
+          if (chunk.type === 'metadata') {
+            updateAiMessage({
+              references: chunk.references || [],
+              suggested_questions: chunk.suggested_questions || []
+            });
 
-      // Show long processing indicator after 30 seconds
-      const longProcessingTimer = setTimeout(() => {
-        setIsLongProcessing(true);
-      }, 30000);
-
-      const response = await Promise.race([
-        api.sendMessage(sessionId, messageToSend, Array.from(selectedPdfIds), provider),
-        timeoutPromise
-      ]) as any;
-
-      // Clear the long processing timer
-      clearTimeout(longProcessingTimer);
-      setIsLongProcessing(false);
-
-      // Replace temp message with actual response
-      setMessages(prev => {
-        // Auto-highlight first reference if available
-        if (response.references && response.references.length > 0) {
-          const firstRef = response.references[0];
-          setHighlightedReference(firstRef);
-          setSelectedPdf(firstRef.pdf_id);
-          setShowPdfPreview(true);
-        }
-
-        const filtered = prev.filter(msg => msg.message_id !== tempUserMessage.message_id);
-        return [
-          ...filtered,
-          {
-            message_id: `user-${Date.now()}`,
-            session_id: sessionId,
-            sender: 'user',
-            message_text: response.user_message,
-            created_at: new Date().toISOString()
-          },
-          {
-            message_id: `ai-${Date.now()}`,
-            session_id: sessionId,
-            sender: 'ai',
-            message_text: response.ai_response,
-            references: response.references,
-            suggested_questions: response.suggested_questions,
-            created_at: new Date().toISOString()
+            // Auto-highlight first reference if available
+            if (chunk.references && chunk.references.length > 0) {
+              const firstRef = chunk.references[0];
+              setHighlightedReference(firstRef);
+              setSelectedPdf(firstRef.pdf_id);
+              setShowPdfPreview(true);
+            }
+          } else if (chunk.type === 'chunk') {
+            setMessages(prev => prev.map(msg => {
+              if (msg.message_id === tempAiMessage.message_id) {
+                return { ...msg, message_text: msg.message_text + (chunk.content || '') };
+              }
+              return msg;
+            }));
+          } else if (chunk.type === 'followups') {
+            updateAiMessage({ suggested_questions: chunk.suggested_questions || [] });
+          } else if (chunk.type === 'error') {
+            console.error("Stream error from server:", chunk.content);
+            toast({
+              title: "Stream Error",
+              description: chunk.content,
+              variant: "destructive",
+            });
           }
-        ];
-      });
+        }
+      );
 
     } catch (error: any) {
       console.error("Failed to send message:", error);
 
-      // Remove temp message on error
-      setMessages(prev => prev.filter(msg => !msg.message_id.startsWith('temp-')));
+      // Clean up temp messages on total failure
+      setMessages(prev => prev.filter(msg =>
+        msg.message_id !== tempUserMessage.message_id &&
+        msg.message_id !== tempAiMessage.message_id
+      ));
 
-      // Clear long processing state
-      setIsLongProcessing(false);
-
-      let errorMessage = "Failed to send message. Please try again.";
-
-      if (error.message?.includes('timeout')) {
-        errorMessage = "AI is taking longer than expected. The request is still processing in the background. Please wait a moment and refresh the page to see the response.";
-      } else if (error.message?.includes('502')) {
-        errorMessage = "AI service is temporarily unavailable. Please try again in a few moments.";
-      } else if (error.message?.includes('500')) {
-        errorMessage = "Server error occurred. Please try again.";
-      }
+      let errorMessage = "Failed to send message. Please try again. " + (error.message || "");
 
       toast({
         title: "Error",

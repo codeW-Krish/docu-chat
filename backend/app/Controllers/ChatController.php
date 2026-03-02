@@ -198,6 +198,151 @@ public function getSessions()
         }
     }
 
+    public function sendMessageStream()
+    {
+        // Disable output buffering to ensure immediate streaming
+        if (ob_get_level()) {
+            @ob_end_clean();
+        }
+        
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Connection: keep-alive');
+        header('X-Accel-Buffering: no'); // For NGINX
+        
+        try {
+            $rawInput = file_get_contents('php://input');
+            $data = json_decode($rawInput, true);
+            if (!$data && $this->request->getJSON(true)) {
+                $data = $this->request->getJSON(true);
+            }
+            
+            $userId = $this->request->user->user_id ?? null;
+            if (!$userId) {
+                echo "data: " . json_encode(['type' => 'error', 'content' => 'Unauthorized']) . "\n\n";
+                flush();
+                exit();
+            }
+            
+            $sessionId = $data['session_id'] ?? null;
+            $message = $data['message'] ?? '';
+            $requestedPdfIds = $data['pdf_ids'] ?? null;
+            $provider = $data['provider'] ?? null;
+            
+            if (!$sessionId || (!$message && $message !== '0')) {
+                echo "data: " . json_encode(['type' => 'error', 'content' => 'Session ID and message are required']) . "\n\n";
+                flush();
+                exit();
+            }
+            
+            // Verify session belongs to user
+            $session = $this->chatSessionModel->where('session_id', $sessionId)
+                                             ->where('user_id', $userId)
+                                             ->first();
+            if (!$session) {
+                echo "data: " . json_encode(['type' => 'error', 'content' => 'Invalid session or access denied']) . "\n\n";
+                flush();
+                exit();
+            }
+            
+            // Get PDFs
+            $sessionPdfs = $this->chatSessionModel->getSessionPdfs($sessionId);
+            $allSessionPdfIds = array_column($sessionPdfs, 'pdf_id');
+            
+            $pdfIds = [];
+            if ($requestedPdfIds !== null && is_array($requestedPdfIds)) {
+                $pdfIds = array_intersect($requestedPdfIds, $allSessionPdfIds);
+            } else {
+                $pdfIds = $allSessionPdfIds;
+            }
+            
+            // Save user message immediately
+            $this->chatMessageModel->addMessage($sessionId, 'user', $message);
+            
+            $conversationHistory = $this->getConversationHistory($sessionId);
+            
+            $pythonServerUrl = getenv('PYTHON_SERVER_URL') ?: 'http://localhost:5000';
+            $postData = json_encode([
+                'question' => $message,
+                'pdf_ids' => $pdfIds,
+                'user_id' => $userId,
+                'session_id' => $sessionId,
+                'conversation_history' => $conversationHistory,
+                'provider' => $provider
+            ]);
+            
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $pythonServerUrl . '/chat/stream',
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $postData,
+                CURLOPT_RETURNTRANSFER => false, // Don't return, write directly via writefunction
+                CURLOPT_TIMEOUT => 300, 
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'Accept: text/event-stream'
+                ]
+            ]);
+            
+            $accumulatedMetadata = null;
+            $accumulatedContent = '';
+            
+            // Pass the response from Python directly out to the React client
+            curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($curl, $data) use (&$accumulatedMetadata, &$accumulatedContent) {
+                echo $data;
+                @ob_flush();
+                flush();
+                
+                // Parse chunks so we can save to DB later
+                $lines = explode("\n\n", $data);
+                foreach ($lines as $line) {
+                    if (strpos($line, 'data: ') === 0) {
+                        $jsonStr = substr($line, 6);
+                        $item = json_decode($jsonStr, true);
+                        if ($item && isset($item['type'])) {
+                            if ($item['type'] === 'metadata') {
+                                $accumulatedMetadata = $item;
+                            } elseif ($item['type'] === 'chunk') {
+                                $accumulatedContent .= $item['content'] ?? '';
+                            }
+                        }
+                    }
+                }
+                
+                return strlen($data);
+            });
+            
+            curl_exec($ch);
+            
+            if (curl_errno($ch)) {
+                $errorMsg = curl_error($ch);
+                echo "data: " . json_encode(['type' => 'error', 'content' => 'AI server stream error: ' . $errorMsg]) . "\n\n";
+                flush();
+            }
+            curl_close($ch);
+            
+            // Now save the final accumulated AI response to database
+            if ($accumulatedContent) {
+                $references = $accumulatedMetadata['references'] ?? [];
+                
+                $this->chatMessageModel->addMessage(
+                    $sessionId, 
+                    'ai', 
+                    $accumulatedContent, 
+                    $references
+                );
+            }
+            
+            exit();
+            
+        } catch (\Exception $e) {
+            log_message('error', 'Send message stream error: ' . $e->getMessage());
+            echo "data: " . json_encode(['type' => 'error', 'content' => 'Server stream failure: ' . $e->getMessage()]) . "\n\n";
+            flush();
+            exit();
+        }
+    }
+
     public function generateSummary()
     {
         try {

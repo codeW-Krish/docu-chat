@@ -382,3 +382,167 @@ class AIGenerator:
             references_section += f"{chunk['pdf_name']} (Page {chunk['page_number']}, Similarity: {chunk['similarity']:.2f})\n"
         
         return answer + references_section
+
+    def generate_answer_stream(self, question, pdf_ids, user_id, session_id=None, conversation_history=None, provider=None):
+        """Generate AI answer as a stream with semantic search and references"""
+        import json
+        try:
+            logger.info(f"Generating streaming answer for user {user_id}, PDFs: {pdf_ids}")
+            selected_provider = self._resolve_provider(provider)
+            
+            enhanced_question = self._enhance_question_with_context(question, conversation_history, selected_provider)
+            
+            if "summarize" in enhanced_question.lower():
+                summary_chunks = self.vector_search.search_similar_chunks(
+                    enhanced_question, pdf_ids, user_id, top_k=50, similarity_threshold=0.1
+                )
+                if not summary_chunks:
+                    yield {"type": "metadata", "references": [], "suggested_questions": [], "provider": selected_provider}
+                    yield {"type": "chunk", "content": "Unable to find content to summarize. Please ensure the PDFs contain relevant information."}
+                    yield {"type": "done"}
+                    return
+                
+                full_text = " ".join(chunk["chunk_text"] for chunk in summary_chunks)
+                prompt = f"Summarize the following text in a concise paragraph, preserving the main ideas and important details:\n\n{full_text}"
+                
+                yield {"type": "metadata", "references": summary_chunks, "suggested_questions": [], "provider": selected_provider}
+                
+                full_response = ""
+                for chunk in self._call_llm_stream(prompt, provider=selected_provider):
+                    full_response += chunk
+                    yield {"type": "chunk", "content": chunk}
+                
+                followups = self._generate_followup_questions(full_response, enhanced_question, selected_provider)
+                yield {"type": "followups", "suggested_questions": followups}
+                yield {"type": "done"}
+                return
+            
+            relevant_chunks = self.vector_search.search_similar_chunks(
+                enhanced_question, pdf_ids, user_id, top_k=10, similarity_threshold=0.3
+            )
+            
+            if not relevant_chunks:
+                pdf_names = self.vector_search.get_pdf_names(pdf_ids)
+                pdf_list = "\n".join([f"- {name}" for name in pdf_names])
+                
+                msg = "I couldn't find relevant information in the provided PDFs to answer your question."
+                if pdf_names:
+                    msg += f"\n\nCurrently selected documents:\n{pdf_list}\n\nYou can try asking about these, or select more documents."
+                else:
+                    msg += " No documents are currently selected."
+
+                yield {"type": "metadata", "references": [], "suggested_questions": [], "provider": selected_provider}
+                yield {"type": "chunk", "content": msg}
+                yield {"type": "done"}
+                return
+            
+            context_parts = []
+            pdf_chunks = {}
+            for chunk in relevant_chunks:
+                pdf_name = chunk['pdf_name']
+                if pdf_name not in pdf_chunks:
+                    pdf_chunks[pdf_name] = []
+                pdf_chunks[pdf_name].append(chunk)
+            
+            for pdf_name, chunks in pdf_chunks.items():
+                context_parts.append(f"=== FROM {pdf_name} ===")
+                for i, chunk in enumerate(chunks, 1):
+                    context_parts.append(
+                        f"[Source {i}] Page {chunk['page_number']}, Chunk {chunk['chunk_index']} (Similarity: {chunk['similarity']:.2f}):\n"
+                        f"{chunk['chunk_text']}\n"
+                    )
+                context_parts.append("")
+            
+            context = "\n".join(context_parts)
+            prompt = self._build_prompt(question, context)
+            
+            yield {"type": "metadata", "references": relevant_chunks, "suggested_questions": [], "provider": selected_provider}
+            
+            full_response = ""
+            for chunk in self._call_llm_stream(prompt, provider=selected_provider):
+                full_response += chunk
+                yield {"type": "chunk", "content": chunk}
+            
+            references_section = "\n\n---\n**Source Documents:**\n"
+            for i, chunk in enumerate(relevant_chunks, 1):
+                references_section += f"{chunk['pdf_name']} (Page {chunk['page_number']}, Similarity: {chunk['similarity']:.2f})\n"
+            yield {"type": "chunk", "content": references_section}
+            full_response += references_section
+            
+            followups = self._generate_followup_questions(full_response, question, selected_provider)
+            yield {"type": "followups", "suggested_questions": followups}
+            yield {"type": "done"}
+            
+        except Exception as e:
+            logger.error(f"AI streaming generation error: {str(e)}")
+            yield {"type": "metadata", "references": [], "suggested_questions": [], "provider": "groq"}
+            yield {"type": "chunk", "content": "I apologize, but I encountered an error while processing your question. Please try again in a moment."}
+            yield {"type": "done"}
+
+    def _call_llm_stream(self, prompt, provider=None, max_tokens=2000, temperature=0.2, timeout=60):
+        selected_provider = self._resolve_provider(provider)
+
+        if selected_provider == 'cerebras':
+            yield from self._call_cerebras_llm_stream(prompt, max_tokens=max_tokens, temperature=temperature)
+        else:
+            yield from self._call_groq_llm_stream(prompt, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
+
+    def _call_groq_llm_stream(self, prompt, max_tokens=2000, temperature=0.2, timeout=60):
+        try:
+            response = self.client.chat.completions.create(
+                model=self.groq_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert AI assistant that provides comprehensive, detailed answers based on document context. Focus on being thorough and educational in your responses."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                stream=True
+            )
+            
+            for chunk in response:
+                content = chunk.choices[0].delta.content
+                if content is not None:
+                    yield content
+                    
+        except Exception as e:
+            logger.error(f"Groq API streaming error: {str(e)}")
+            raise
+
+    def _call_cerebras_llm_stream(self, prompt, max_tokens=2000, temperature=0.2):
+        if not self.cerebras_client:
+            raise Exception("Cerebras client not initialized. Add CEREBRAS_API_KEY in environment.")
+
+        try:
+            response = self.cerebras_client.chat.completions.create(
+                model=self.cerebras_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert AI assistant that provides comprehensive, detailed answers based on document context. Focus on being thorough and educational in your responses."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True
+            )
+
+            for chunk in response:
+                content = chunk.choices[0].delta.content
+                if content is not None:
+                    yield content
+
+        except Exception as e:
+            logger.error(f"Cerebras API streaming error: {str(e)}")
+            raise

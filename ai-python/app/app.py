@@ -174,6 +174,60 @@ def chat():
             'message': f'Chat failed: {str(e)}'
         }), 500
 
+@app.route('/chat/stream', methods=['POST'])
+def chat_stream():
+    """Chat streaming endpoint - called by PHP backend"""
+    try:
+        from flask import Response
+        import json
+        
+        if not ai_generator or not services_available:
+            return jsonify({
+                'status': 'error', 
+                'message': 'AI generator not available. Service is still initializing.'
+            }), 503
+            
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'status': 'error', 
+                'message': 'No JSON data provided'
+            }), 400
+        
+        question = data.get('question')
+        pdf_ids = data.get('pdf_ids')
+        user_id = data.get('user_id')
+        session_id = data.get('session_id')
+        conversation_history = data.get('conversation_history', [])
+        provider = data.get('provider')
+        
+        if not all([question, pdf_ids, user_id]):
+            return jsonify({
+                'status': 'error', 
+                'message': 'Missing required fields: question, pdf_ids, user_id'
+            }), 400
+        
+        logger.info(f"Chat stream request - User: {user_id}, Session: {session_id}")
+        
+        def generate():
+            try:
+                for chunk in ai_generator.generate_answer_stream(
+                    question, pdf_ids, user_id, session_id, conversation_history, provider
+                ):
+                    yield f"data: {json.dumps(chunk)}\n\n"
+            except Exception as e:
+                logger.error(f"Stream generation error: {str(e)}")
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        
+        return Response(generate(), mimetype='text/event-stream', headers={'X-Accel-Buffering': 'no'})
+        
+    except Exception as e:
+        logger.error(f"Chat stream endpoint error: {str(e)}")
+        return jsonify({
+            'status': 'error', 
+            'message': f'Chat stream failed: {str(e)}'
+        }), 500
+
 @app.route('/summarize', methods=['POST'])
 def summarize():
     """Summarize endpoint - called by PHP backend"""

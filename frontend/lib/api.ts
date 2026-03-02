@@ -708,6 +708,68 @@ class ApiClient {
     return response.data!;
   }
 
+  async sendMessageStream(
+    sessionId: string,
+    message: string,
+    pdfIds?: string[],
+    provider?: LlmProvider,
+    onChunk?: (chunk: any) => void
+  ): Promise<void> {
+    const url = `${this.baseUrl}/api/chat/message/stream`;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        message: message,
+        pdf_ids: pdfIds,
+        provider: provider
+      }),
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP error! status: ${response.status} ${errorText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('ReadableStream not supported by browser');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      // Keep the last partial string in buffer
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.substring(6);
+          try {
+            const data = JSON.parse(jsonStr);
+            if (onChunk) onChunk(data);
+          } catch (e) {
+            console.error('Failed to parse stream chunk:', jsonStr, e);
+          }
+        }
+      }
+    }
+  }
+
   async getSessionMessages(sessionId: string): Promise<{
     messages: ChatMessage[];
     session: ChatSession;
