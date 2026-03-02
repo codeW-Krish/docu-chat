@@ -278,15 +278,20 @@ class DocumentProcessor:
             total_text_length = sum(page['char_length'] for page in pages_data)
             if total_text_length == 0:
                 raise ValueError("No text content could be extracted from document")
+                
+            total_pages = len(pages_data)
             
-            logger.info(f"Extracted {total_text_length} characters from {len(pages_data)} pages/sections")
+            logger.info(f"Extracted {total_text_length} characters from {total_pages} pages/sections")
             
             # Open a secondary connection strictly for live UI telemetry
             telemetry_conn = get_db_connection()
             telemetry_conn.autocommit = True
             try:
                 with telemetry_conn.cursor() as t_cursor:
-                    t_cursor.execute("UPDATE pdfs SET processing_progress = 30 WHERE pdf_id = %s", (pdf_id,))
+                    t_cursor.execute(
+                        "UPDATE pdfs SET processing_progress = 30, page_count = %s WHERE pdf_id = %s", 
+                        (total_pages, pdf_id)
+                    )
             except Exception as e:
                 logger.warning(f"Telemetry update failed: {e}")
                 

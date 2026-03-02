@@ -656,6 +656,17 @@ class ApiClient {
     };
   }
 
+  async renameSession(sessionId: string, newName: string): Promise<{ session: ChatSession }> {
+    const response = await this.request<ApiResponse<ChatSession>>(`/api/chat/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ session_name: newName }),
+    });
+
+    return {
+      session: response.data!
+    };
+  }
+
   async getSessions(): Promise<{ sessions: ChatSession[] }> {
     const response = await this.request<ApiResponse<ChatSession[]>>('/api/chat/sessions');
 

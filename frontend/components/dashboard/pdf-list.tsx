@@ -4,10 +4,21 @@ import { useState, useEffect } from "react"
 import { FileText, CheckCircle, Clock, AlertCircle, MessageSquare, Trash2, File } from "lucide-react"
 import { api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 export function PdfList() {
   const [pdfs, setPdfs] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [pdfToDelete, setPdfToDelete] = useState<string | null>(null)
 
   const loadPdfs = async () => {
     try {
@@ -68,16 +79,18 @@ export function PdfList() {
     return <File className="h-5 w-5 text-accent flex-shrink-0" />;
   };
 
-  const handleDeletePdf = async (pdfId: string) => {
-    if (!confirm("Are you sure you want to delete this PDF?")) return
+  const handleDeletePdf = async () => {
+    if (!pdfToDelete) return
 
     try {
-      await api.deletePdf(pdfId)
-      setPdfs(pdfs.filter(pdf => pdf.pdf_id !== pdfId))
+      await api.deletePdf(pdfToDelete)
+      setPdfs(pdfs.filter(pdf => pdf.pdf_id !== pdfToDelete))
       // Trigger refresh of stats
       window.dispatchEvent(new Event("pdfUploaded"))
     } catch (error) {
       console.error("Failed to delete PDF:", error)
+    } finally {
+      setPdfToDelete(null)
     }
   }
 
@@ -177,7 +190,7 @@ export function PdfList() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleDeletePdf(pdf.pdf_id)}
+                    onClick={() => setPdfToDelete(pdf.pdf_id)}
                     className="h-9 w-9 rounded-full text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors shrink-0"
                     title="Delete document"
                   >
@@ -189,6 +202,28 @@ export function PdfList() {
           ))}
         </div>
       )}
+
+      {/* Custom UI Delete Modal */}
+      <AlertDialog open={!!pdfToDelete} onOpenChange={(open) => !open && setPdfToDelete(null)}>
+        <AlertDialogContent className="bg-white dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl font-extrabold text-zinc-900 dark:text-white">Delete Document</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-500 dark:text-gray-400">
+              Are you sure you want to permanently delete this document and all its associated vector data? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-6">
+            <AlertDialogCancel className="rounded-full border-zinc-200 dark:border-white/10 hover:bg-zinc-100 dark:hover:bg-white/5 dark:text-white transition-colors">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePdf}
+              className="rounded-full bg-red-500 text-white hover:bg-red-600 shadow-md transition-all"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Document
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
