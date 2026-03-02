@@ -18,6 +18,7 @@ export interface PdfFile {
   page_count: number;
   uploaded_at: string;
   processing_status: 'pending' | 'processing' | 'completed' | 'failed';
+  processing_progress?: number;
 }
 
 export interface ChatSession {
