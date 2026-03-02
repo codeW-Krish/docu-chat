@@ -209,6 +209,16 @@ public function getSessions()
         header('Cache-Control: no-cache, must-revalidate');
         header('Connection: keep-alive');
         header('X-Accel-Buffering: no'); // For NGINX
+
+        // Manually add CORS headers because true streaming bypasses CodeIgniter's "after" filter
+        $origin = $this->request->getHeaderLine('Origin');
+        if ($origin && \in_array($origin, config('Cors')->default['allowedOrigins'] ?? [])) {
+            header("Access-Control-Allow-Origin: $origin");
+            header('Access-Control-Allow-Credentials: true');
+        } else {
+            // Fallback for Vercel if config fails
+            header('Access-Control-Allow-Origin: *');
+        }
         
         try {
             $rawInput = file_get_contents('php://input');
