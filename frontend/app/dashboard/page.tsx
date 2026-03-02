@@ -8,7 +8,7 @@ import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar"
 import { PdfUpload } from "@/components/dashboard/pdf-upload"
 import { PdfList } from "@/components/dashboard/pdf-list"
 import { SessionList } from "@/components/dashboard/session-list"
-import { Loader2, FileText, Sparkles, Upload, MessageSquare } from "lucide-react"
+import { Loader2, FileText, Upload, MessageSquare } from "lucide-react"
 import { api } from "@/lib/api"
 import { motion } from "framer-motion"
 
@@ -55,10 +55,10 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#050505]">
+      <div className="min-h-screen flex items-center justify-center bg-[#FAFAFA] dark:bg-[#050505]">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin text-lime-accent mx-auto mb-4" />
-          <p className="text-gray-500 font-medium">Loading your dashboard...</p>
+          <p className="text-zinc-500 font-medium">Loading your dashboard...</p>
         </div>
       </div>
     )
@@ -94,17 +94,14 @@ export default function DashboardPage() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg dark:shadow-[0_0_40px_-10px_rgba(255,255,255,0.05)] p-6 sm:p-8 mb-8"
+                className="bg-white dark:bg-[#0A0A0A] rounded-2xl border border-gray-100 dark:border-white/5 shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-[0_0_40px_-10px_rgba(255,255,255,0.05)] p-6 sm:p-8 mb-8"
               >
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-lime-accent/20 text-lime-accent">
-                    <Sparkles className="h-4 w-4 animate-pulse group-hover:scale-110 transition-transform" />
-                  </div>
-                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-dark dark:text-white">
-                    Welcome back, <span className="text-gray-500 dark:text-gray-400">{user?.name}</span>!
+                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-white">
+                    Welcome back, <span className="text-lime-600 dark:text-lime-accent">{user?.name}</span>!
                   </h2>
                 </div>
-                <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-2">
+                <p className="text-sm sm:text-base text-zinc-500 dark:text-zinc-400 mt-2">
                   Ready to chat with your documents? Upload a new document or continue an existing conversation.
                 </p>
               </motion.div>
