@@ -54,8 +54,8 @@ export function LandingNavbar() {
                 animate={{ y: 0 }}
                 transition={{ duration: 0.5 }}
                 className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled
-                        ? 'bg-white/80 dark:bg-[#050505]/80 backdrop-blur-xl border-b border-gray-100 dark:border-white/10 py-4'
-                        : 'bg-transparent py-6'
+                    ? 'bg-white/80 dark:bg-[#050505]/80 backdrop-blur-xl border-b border-gray-100 dark:border-white/10 py-4'
+                    : 'bg-transparent py-6'
                     }`}
             >
                 <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
@@ -125,48 +125,56 @@ export function LandingNavbar() {
                         </motion.button>
                         <motion.button
                             whileTap={{ scale: 0.9 }}
-                            className="text-black dark:text-white"
+                            className="p-2 -mr-2 text-black dark:text-white"
                             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                         >
-                            {isMobileMenuOpen ? <X /> : <Menu />}
+                            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
                         </motion.button>
                     </div>
+                    {/* Mobile Menu Overlay */}
+                    <AnimatePresence>
+                        {isMobileMenuOpen && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="absolute top-full left-0 w-full bg-white dark:bg-[#050505] border-b border-gray-100 dark:border-white/10 z-40 md:hidden overflow-hidden shadow-lg origin-top"
+                            >
+                                <div className="flex flex-col p-6 gap-4">
+                                    {navLinks.map((link) => (
+                                        <a
+                                            key={link.name}
+                                            href={link.href}
+                                            onClick={() => setIsMobileMenuOpen(false)}
+                                            className="text-lg font-medium text-black dark:text-white"
+                                        >
+                                            {link.name}
+                                        </a>
+                                    ))}
+                                    <div className="flex flex-col gap-3 mt-2">
+                                        <Link href="/signin" onClick={() => setIsMobileMenuOpen(false)}>
+                                            <motion.button
+                                                whileTap={{ scale: 0.95 }}
+                                                className="w-full py-3 rounded-xl font-bold bg-gray-100 dark:bg-white/5 text-black dark:text-white hover:bg-gray-200 dark:hover:bg-white/10"
+                                            >
+                                                Log In
+                                            </motion.button>
+                                        </Link>
+                                        <Link href="/signup" onClick={() => setIsMobileMenuOpen(false)}>
+                                            <motion.button
+                                                whileTap={{ scale: 0.95 }}
+                                                className="bg-lime-accent text-black w-full py-3 rounded-xl font-bold hover:brightness-105"
+                                            >
+                                                Get Started
+                                            </motion.button>
+                                        </Link>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </motion.nav>
-
-            {/* Mobile Menu Overlay */}
-            <AnimatePresence>
-                {isMobileMenuOpen && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="fixed top-[70px] left-0 w-full bg-white dark:bg-[#050505] border-b border-gray-100 dark:border-white/10 z-40 md:hidden overflow-hidden shadow-lg"
-                    >
-                        <div className="flex flex-col p-6 gap-4">
-                            {navLinks.map((link) => (
-                                <a
-                                    key={link.name}
-                                    href={link.href}
-                                    onClick={() => setIsMobileMenuOpen(false)}
-                                    className="text-lg font-medium text-black dark:text-white"
-                                >
-                                    {link.name}
-                                </a>
-                            ))}
-                            <hr className="border-gray-100 dark:border-white/10" />
-                            <Link href="/signup">
-                                <motion.button
-                                    whileTap={{ scale: 0.95 }}
-                                    className="bg-lime-accent text-black w-full py-3 rounded-xl font-bold hover:brightness-105"
-                                >
-                                    Get Started
-                                </motion.button>
-                            </Link>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </>
     );
 }
