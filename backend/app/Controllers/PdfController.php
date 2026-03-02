@@ -175,8 +175,8 @@ class PdfController extends BaseController
 
             // Step B: Trigger Python processing (this blocks for 60-150 seconds)
             $this->sendToPythonProcessor($pdfData['pdf_id'], $appwriteFileId, $user_id);
-            // Update status to processing/completed
-            $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'completed'); // Assume it completed if no error
+            // Update status to processing (Python will mark it as completed when finished)
+            $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'processing');
         } catch (\Exception $bgEx) {
             log_message('error', 'Background Python processing error: ' . $bgEx->getMessage());
             $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'failed');
@@ -365,7 +365,8 @@ class PdfController extends BaseController
                 );
 
                 $this->sendToPythonProcessor($pdfData['pdf_id'], $appwriteFileId, $user_id);
-                $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'completed');
+                // Update status to processing (Python will mark as completed when done)
+                $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'processing');
             } catch (\Exception $bgEx) {
                 log_message('error', 'Background Python processing error: ' . $bgEx->getMessage());
                 $this->pdfModel->updateProcessingStatus($pdfData['pdf_id'], 'failed');
