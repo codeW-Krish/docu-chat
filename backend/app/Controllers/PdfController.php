@@ -505,6 +505,7 @@ class PdfController extends BaseController
                     'pdf_id' => $pdf->pdf_id,
                     'file_name' => $pdf->file_name,
                     'processing_status' => $pdf->processing_status,
+                    'processing_progress' => $pdf->processing_progress ?? 0,
                     'page_count' => $pdf->page_count,
                     'uploaded_at' => $pdf->uploaded_at
                 ]
