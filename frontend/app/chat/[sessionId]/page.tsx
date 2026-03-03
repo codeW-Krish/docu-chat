@@ -44,7 +44,8 @@ import {
   PanelLeftOpen,
   CheckSquare,
   Square,
-  Download
+  Download,
+  Layout
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import dynamic from "next/dynamic";
@@ -98,6 +99,8 @@ export default function ChatSessionPage() {
   const [error, setError] = useState<string | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(true);
   const [showMobilePdf, setShowMobilePdf] = useState(false);
+  const [mobileLayout, setMobileLayout] = useState<'sheet' | 'split'>('sheet');
+  const [isMobile, setIsMobile] = useState(false);
   const [selectedPdf, setSelectedPdf] = useState<string | null>(null);
   const [highlightedReference, setHighlightedReference] = useState<PdfReference | null>(null);
   const [isLongProcessing, setIsLongProcessing] = useState(false);
@@ -115,6 +118,13 @@ export default function ChatSessionPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -434,15 +444,15 @@ export default function ChatSessionPage() {
             </div>
 
             {/* Message Content */}
-            <div className={`space-y-2 ${isUser ? 'text-right' : 'text-left'} min-w-0`}>
+            <div className={`space-y-2 ${isUser ? 'text-right' : 'text-left'} min-w-0 max-w-full overflow-hidden`}>
               <div className={`
-                p-3 md:p-5 relative transition-all duration-200
+                p-3 md:p-5 relative transition-all duration-200 break-words max-w-full
                 ${isUser
                   ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 rounded-[1.5rem] rounded-tr-sm shadow-[0_4px_14px_0_rgba(0,0,0,0.1)] dark:shadow-none'
                   : 'bg-white dark:bg-[#111] border border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-[1.5rem] rounded-tl-sm shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none hover:shadow-[0_4px_20px_-8px_rgba(0,0,0,0.1)] dark:hover:border-white/20'
                 }
               `}>
-                <div className={`prose prose-sm dark:prose-invert max-w-none break-words leading-relaxed font-medium ${isUser ? 'prose-p:text-white/90 dark:prose-p:text-zinc-900/90 text-white dark:text-zinc-900' : 'prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white'} prose-pre:bg-zinc-900 dark:prose-pre:bg-[#111] prose-pre:border prose-pre:border-zinc-800 dark:prose-pre:border-white/10`}>
+                <div className={`prose prose-sm dark:prose-invert max-w-none break-words overflow-x-auto leading-relaxed font-medium ${isUser ? 'prose-p:text-white/90 dark:prose-p:text-zinc-900/90 text-white dark:text-zinc-900' : 'prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white'} prose-pre:bg-zinc-900 dark:prose-pre:bg-[#111] prose-pre:border prose-pre:border-zinc-800 dark:prose-pre:border-white/10`}>
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[rehypeHighlight]}
@@ -461,7 +471,7 @@ export default function ChatSessionPage() {
                             </div>
                           </div>
                         ) : (
-                          <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 ${isUser ? 'bg-white/20 dark:bg-black/10 text-white dark:text-black' : ''}`} {...props}>
+                          <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 break-words whitespace-pre-wrap ${isUser ? 'bg-white/20 dark:bg-black/10 text-white dark:text-black' : ''}`} {...props}>
                             {children}
                           </code>
                         )
@@ -725,7 +735,7 @@ export default function ChatSessionPage() {
   }
 
   return (
-    <div className="h-screen bg-[#FAFAFA] dark:bg-[#050505] overflow-hidden flex flex-col text-zinc-900 dark:text-white" style={{ fontFamily: 'var(--font-plus-jakarta), "Plus Jakarta Sans", sans-serif' }}>
+    <div className="h-[100dvh] bg-[#FAFAFA] dark:bg-[#050505] overflow-hidden flex flex-col text-zinc-900 dark:text-white" style={{ fontFamily: 'var(--font-plus-jakarta), "Plus Jakarta Sans", sans-serif' }}>
       {/* Header */}
       <div className="h-14 md:h-16 border-b border-zinc-200 dark:border-white/10 bg-white/80 dark:bg-[#0A0A0A]/80 backdrop-blur-md sticky top-0 z-50 flex items-center justify-between px-3 md:px-6 shadow-sm">
         <div className="flex items-center gap-1.5 md:gap-4 flex-1 min-w-0">
@@ -822,20 +832,47 @@ export default function ChatSessionPage() {
           </Button>
 
           {/* Mobile PDF Toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowMobilePdf(true)}
-            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors md:hidden h-9 w-9 bg-zinc-50 dark:bg-white/5 rounded-lg"
-          >
-            <BookOpen className="h-4 w-4" />
-          </Button>
+          <div className="md:hidden flex items-center gap-1 bg-zinc-100 dark:bg-[#111] rounded-lg p-0.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (mobileLayout === 'split') {
+                  setMobileLayout('sheet');
+                  setShowMobilePdf(true);
+                } else {
+                  setShowMobilePdf(!showMobilePdf);
+                }
+              }}
+              className={`h-8 w-8 rounded-md transition-colors ${mobileLayout === 'sheet' && showMobilePdf ? 'bg-white dark:bg-zinc-800 shadow-sm text-lime-600 dark:text-lime-accent' : 'text-zinc-500'}`}
+              title="Bottom Sheet View"
+            >
+              <BookOpen className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (mobileLayout === 'sheet') {
+                  setMobileLayout('split');
+                  setShowMobilePdf(false);
+                  setShowPdfPreview(true);
+                } else {
+                  setMobileLayout('sheet');
+                }
+              }}
+              className={`h-8 w-8 rounded-md transition-colors ${mobileLayout === 'split' ? 'bg-white dark:bg-zinc-800 shadow-sm text-lime-600 dark:text-lime-accent' : 'text-zinc-500'}`}
+              title="Split Screen View"
+            >
+              <Layout className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Body Layout */}
       <div className="flex flex-1 overflow-hidden relative">
-        <PanelGroup direction="horizontal" className="h-full w-full">
+        <PanelGroup direction={isMobile && mobileLayout === 'split' ? "vertical" : "horizontal"} className="h-full w-full">
           {/* Desktop Sidebar */}
           {isSidebarOpen && (
             <>
@@ -865,9 +902,9 @@ export default function ChatSessionPage() {
             className="flex flex-col relative min-w-0 bg-[#FAFAFA] dark:bg-[#050505] flex-1 overflow-hidden z-0"
           >
 
-            {/* Messages Area - Add padding bottom to account for floating input */}
-            <ScrollArea className="flex-1 h-full w-full">
-              <div className="px-3 md:px-8 py-4 md:py-6 mx-auto space-y-4 md:space-y-6 pb-28 md:pb-32 w-full max-w-4xl">
+            {/* Messages Area */}
+            <ScrollArea className="flex-1 min-h-0 w-full">
+              <div className="px-3 md:px-8 py-4 md:py-6 mx-auto space-y-4 md:space-y-6 pb-2 md:pb-6 w-full max-w-4xl">
                 {messages.map(renderMessage)}
                 {isSending && (
                   <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -889,8 +926,8 @@ export default function ChatSessionPage() {
               </div>
             </ScrollArea>
 
-            {/* Floating Input Area - Absolute positioning */}
-            <div className="absolute bottom-0 left-0 right-0 p-2 md:p-6 bg-gradient-to-t from-[#FAFAFA] via-[#FAFAFA]/95 to-transparent dark:from-[#050505] dark:via-[#050505]/95 z-10 pointer-events-none">
+            {/* Sticky Input Area - Normal flex flow */}
+            <div className="w-full shrink-0 p-2 md:p-6 bg-[#FAFAFA] dark:bg-[#050505] z-10 border-t border-zinc-200 dark:border-white/5 relative">
               <div className="mx-auto relative w-full max-w-4xl pointer-events-auto">
                 <div className="relative flex items-end gap-1.5 md:gap-2 bg-white/90 dark:bg-[#0A0A0A]/90 backdrop-blur-2xl border border-zinc-200 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.5)] rounded-2xl md:rounded-[1.5rem] p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-lime-accent/30 transition-all duration-300">
                   <Button variant="ghost" size="icon" className="h-10 w-10 text-zinc-500 dark:text-gray-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl shrink-0 hidden md:flex">
@@ -944,19 +981,25 @@ export default function ChatSessionPage() {
             </div>
           </Panel>
 
-          {/* Right Panel – PDF Viewer (Desktop Only) */}
-          {showPdfPreview && (
+          {/* Right Panel – PDF Viewer */}
+          {(showPdfPreview && (!isMobile || (isMobile && mobileLayout === 'split'))) && (
             <>
+              {/* Horizontal resize handle for desktop */}
               <PanelResizeHandle className="hidden md:flex w-1 bg-zinc-200/50 dark:bg-white/5 hover:bg-lime-500/50 dark:hover:bg-lime-accent/50 transition-colors items-center justify-center group z-20 cursor-col-resize">
                 <div className="h-8 w-1 rounded-full bg-zinc-300/50 dark:bg-white/10 group-hover:bg-lime-600 dark:group-hover:bg-lime-accent transition-colors" />
+              </PanelResizeHandle>
+
+              {/* Vertical resize handle for mobile split layout */}
+              <PanelResizeHandle className="md:hidden h-1 w-full bg-zinc-200/50 dark:bg-white/5 hover:bg-lime-500/50 dark:hover:bg-lime-accent/50 transition-colors flex items-center justify-center group z-20 cursor-row-resize">
+                <div className="w-8 h-1 rounded-full bg-zinc-300/50 dark:bg-white/10 group-hover:bg-lime-600 dark:group-hover:bg-lime-accent transition-colors" />
               </PanelResizeHandle>
 
               <Panel
                 id="pdf-preview"
                 order={3}
-                defaultSize={45}
+                defaultSize={isMobile ? 50 : 45}
                 minSize={20}
-                className="hidden md:flex flex-col border-l border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0A0A0A] shadow-[0_0_40px_-10px_rgba(0,0,0,0.1)] z-10 flex-1 min-w-0 overflow-hidden"
+                className="flex flex-col border-l border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0A0A0A] shadow-[0_0_40px_-10px_rgba(0,0,0,0.1)] z-10 flex-1 min-w-0 overflow-hidden"
               >
 
                 <PdfViewer
