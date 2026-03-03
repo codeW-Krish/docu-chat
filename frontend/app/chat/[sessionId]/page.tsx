@@ -897,7 +897,7 @@ export default function ChatSessionPage() {
 
               {/* Messages Area */}
               <ScrollArea className="flex-1 min-h-0 w-full">
-                <div className="px-3 md:px-8 py-4 md:py-6 mx-auto space-y-4 md:space-y-6 pb-2 md:pb-6 w-full max-w-4xl">
+                <div className="px-3 md:px-10 lg:px-14 py-4 md:py-6 mx-auto space-y-4 md:space-y-6 pb-2 md:pb-6 w-full max-w-6xl">
                   {messages.map(renderMessage)}
                   {isSending && (
                     <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -920,8 +920,8 @@ export default function ChatSessionPage() {
               </ScrollArea>
 
               {/* Sticky Input Area - Normal flex flow */}
-              <div className="w-full shrink-0 p-2 md:p-6 bg-[#FAFAFA] dark:bg-[#050505] z-10 border-t border-zinc-200 dark:border-white/5 relative">
-                <div className="mx-auto relative w-full max-w-4xl pointer-events-auto">
+              <div className="w-full shrink-0 p-2 md:p-6 lg:p-8 bg-[#FAFAFA] dark:bg-[#050505] z-10 border-t border-zinc-200 dark:border-white/5 relative">
+                <div className="mx-auto relative w-full max-w-6xl pointer-events-auto">
                   <div className="relative flex items-end gap-1.5 md:gap-2 bg-white/90 dark:bg-[#0A0A0A]/90 backdrop-blur-2xl border border-zinc-200 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.5)] rounded-2xl md:rounded-[1.5rem] p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-lime-accent/30 transition-all duration-300">
                     <Button variant="ghost" size="icon" className="h-10 w-10 text-zinc-500 dark:text-gray-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 rounded-xl shrink-0 hidden md:flex">
                       <Plus className="h-5 w-5" />
