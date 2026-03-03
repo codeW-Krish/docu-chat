@@ -15,6 +15,12 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import {
   MessageSquare,
   FileText,
   Loader2,
@@ -91,6 +97,7 @@ export default function ChatSessionPage() {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(true);
+  const [showMobilePdf, setShowMobilePdf] = useState(false);
   const [selectedPdf, setSelectedPdf] = useState<string | null>(null);
   const [highlightedReference, setHighlightedReference] = useState<PdfReference | null>(null);
   const [isLongProcessing, setIsLongProcessing] = useState(false);
@@ -394,6 +401,7 @@ export default function ChatSessionPage() {
     setHighlightedReference(reference);
     setSelectedPdf(reference.pdf_id);
     setShowPdfPreview(true);
+    setShowMobilePdf(true); // Open mobile drawer
   };
 
   const handleProviderChange = (value: string) => {
@@ -800,7 +808,10 @@ export default function ChatSessionPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setShowPdfPreview(!showPdfPreview)}
+            onClick={() => {
+              setShowPdfPreview(!showPdfPreview);
+              setShowMobilePdf(true); // Always open mobile when clicked individually
+            }}
             className={`
               transition-all duration-200 hidden md:flex font-medium rounded-lg
               ${showPdfPreview ? "bg-lime-50 text-lime-700 dark:bg-lime-accent/10 dark:text-lime-accent hover:bg-lime-100 dark:hover:bg-lime-accent/20" : "text-zinc-500 hover:text-zinc-900 dark:text-gray-400 dark:hover:text-white"}
@@ -808,6 +819,16 @@ export default function ChatSessionPage() {
           >
             {showPdfPreview ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
             {showPdfPreview ? 'Hide Preview' : 'Show Preview'}
+          </Button>
+
+          {/* Mobile PDF Toggle */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowMobilePdf(true)}
+            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors md:hidden h-9 w-9 bg-zinc-50 dark:bg-white/5 rounded-lg"
+          >
+            <BookOpen className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -923,7 +944,7 @@ export default function ChatSessionPage() {
             </div>
           </Panel>
 
-          {/* Right Panel – PDF Viewer */}
+          {/* Right Panel – PDF Viewer (Desktop Only) */}
           {showPdfPreview && (
             <>
               <PanelResizeHandle className="hidden md:flex w-1 bg-zinc-200/50 dark:bg-white/5 hover:bg-lime-500/50 dark:hover:bg-lime-accent/50 transition-colors items-center justify-center group z-20 cursor-col-resize">
@@ -950,6 +971,25 @@ export default function ChatSessionPage() {
           )}
         </PanelGroup>
       </div>
+
+      {/* Mobile PDF Drawer */}
+      <Drawer open={showMobilePdf} onOpenChange={setShowMobilePdf}>
+        <DrawerContent className="h-[85vh] bg-white dark:bg-[#0A0A0A] border-zinc-200 dark:border-white/10 flex flex-col">
+          <DrawerHeader className="border-b border-zinc-200 dark:border-white/10 px-4 py-3 shrink-0">
+            <DrawerTitle className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-lime-600 dark:text-lime-accent" />
+              Document Preview
+            </DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-hidden relative">
+            <PdfViewer
+              pdf={pdfs.find(p => p.pdf_id === selectedPdf) || null}
+              highlightedReference={highlightedReference}
+              onPageChange={(page) => { }}
+            />
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       <ExportModal
         isOpen={isExportModalOpen}
