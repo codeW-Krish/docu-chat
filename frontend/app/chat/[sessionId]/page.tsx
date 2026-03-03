@@ -431,9 +431,9 @@ export default function ChatSessionPage() {
     const suggestions = message.suggested_questions || [];
 
     return (
-      <div key={message.message_id} className={`flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 group/message`}>
-        <div className={`flex gap-2 md:gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-          <div className={`flex gap-2 md:gap-3 max-w-[95%] md:max-w-[85%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+      <div key={message.message_id} className={`flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 group/message w-full overflow-hidden box-border`}>
+        <div className={`flex gap-2 md:gap-4 w-full box-border ${isUser ? 'justify-end' : 'justify-start'}`}>
+          <div className={`flex gap-2 md:gap-3 w-full sm:w-auto max-w-full md:max-w-[85%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
             {/* Avatar */}
             <div className={`
               flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] dark:shadow-none border
@@ -446,15 +446,15 @@ export default function ChatSessionPage() {
             </div>
 
             {/* Message Content */}
-            <div className={`space-y-2 ${isUser ? 'text-right' : 'text-left'} min-w-0 max-w-full overflow-hidden`}>
+            <div className={`space-y-2 flex-1 ${isUser ? 'text-right' : 'text-left'} min-w-0 max-w-full w-full overflow-hidden box-border shrink`}>
               <div className={`
-                p-3 md:p-5 relative transition-all duration-200 break-words max-w-full
+                p-3.5 md:p-5 relative transition-all duration-200 break-words [overflow-wrap:break-word] w-full max-w-full box-border
                 ${isUser
                   ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 rounded-[1.5rem] rounded-tr-sm shadow-[0_4px_14px_0_rgba(0,0,0,0.1)] dark:shadow-none'
                   : 'bg-white dark:bg-[#111] border border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-[1.5rem] rounded-tl-sm shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none hover:shadow-[0_4px_20px_-8px_rgba(0,0,0,0.1)] dark:hover:border-white/20'
                 }
               `}>
-                <div className={`prose prose-sm dark:prose-invert max-w-none break-words overflow-x-auto leading-relaxed font-medium ${isUser ? 'prose-p:text-white/90 dark:prose-p:text-zinc-900/90 text-white dark:text-zinc-900' : 'prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white'} prose-pre:bg-zinc-900 dark:prose-pre:bg-[#111] prose-pre:border prose-pre:border-zinc-800 dark:prose-pre:border-white/10`}>
+                <div className={`prose prose-sm dark:prose-invert max-w-full w-full break-words [overflow-wrap:break-word] overflow-x-auto leading-relaxed font-medium box-border ${isUser ? 'prose-p:text-white/90 dark:prose-p:text-zinc-900/90 text-white dark:text-zinc-900' : 'prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white'} prose-pre:bg-zinc-900 dark:prose-pre:bg-[#111] prose-pre:border prose-pre:border-zinc-800 dark:prose-pre:border-white/10`}>
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[rehypeHighlight]}
@@ -466,7 +466,7 @@ export default function ChatSessionPage() {
                             <div className="bg-zinc-800/50 dark:bg-white/5 px-4 py-2 text-xs text-zinc-400 dark:text-gray-500 border-b border-zinc-800 dark:border-white/5 flex items-center justify-between font-mono font-medium">
                               <span>{match[1]}</span>
                             </div>
-                            <div className="p-4 overflow-x-auto custom-scrollbar">
+                            <div className="p-4 overflow-x-auto custom-scrollbar w-full relative max-w-[calc(100vw-4rem)] md:max-w-none box-border">
                               <code className={className} {...props}>
                                 {children}
                               </code>
