@@ -188,6 +188,8 @@ class ChatController extends BaseController
             $message = $data['message'] ?? '';
             $requestedPdfIds = $data['pdf_ids'] ?? null; // Optional: specific PDFs to use
             $provider = $data['provider'] ?? null;
+            $model = $data['model'] ?? null;
+            $retrievalMode = $data['retrieval_mode'] ?? null;
             
             if (!$sessionId || !$message) {
                 return $this->response->setJSON([
@@ -221,17 +223,8 @@ class ChatController extends BaseController
             // Filter PDFs if specific IDs requested
             $pdfIds = [];
             if ($requestedPdfIds !== null && is_array($requestedPdfIds)) {
-                // Only use requested IDs that are actually in the session
                 $pdfIds = array_intersect($requestedPdfIds, $allSessionPdfIds);
-                
-                // If intersection is empty but user requested IDs, it means invalid IDs were sent
-                // However, for better UX, if they deselected everything, we might want to handle that.
-                // But usually "chat with 0 docs" is just general chat or error. 
-                // Let's allow it but the AI might complain or just answer from general knowledge if supported.
-                // For now, if result is empty, we can either error or proceed with empty list.
-                // Let's proceed with empty list so AI knows no context is provided.
             } else {
-                // Default to all session PDFs
                 $pdfIds = $allSessionPdfIds;
             }
             
@@ -243,7 +236,7 @@ class ChatController extends BaseController
             log_message('info', 'Conversation history length: ' . count($conversationHistory));
             
             // Send to Python AI server for processing
-            $aiResponse = $this->sendToAI($message, $pdfIds, $userId, $sessionId, $conversationHistory, $provider);
+            $aiResponse = $this->sendToAI($message, $pdfIds, $userId, $sessionId, $conversationHistory, $provider, $model, $retrievalMode);
             log_message('info', 'AI Response received: ' . json_encode($aiResponse));
             
             // Save AI response
@@ -322,6 +315,8 @@ class ChatController extends BaseController
             $message = $data['message'] ?? '';
             $requestedPdfIds = $data['pdf_ids'] ?? null;
             $provider = $data['provider'] ?? null;
+            $model = $data['model'] ?? null;
+            $retrievalMode = $data['retrieval_mode'] ?? null;
             
             if (!$sessionId || (!$message && $message !== '0')) {
                 echo "data: " . json_encode(['type' => 'error', 'content' => 'Session ID and message are required']) . "\n\n";
@@ -362,7 +357,9 @@ class ChatController extends BaseController
                 'user_id' => $userId,
                 'session_id' => $sessionId,
                 'conversation_history' => $conversationHistory,
-                'provider' => $provider
+                'provider' => $provider,
+                'model' => $model,
+                'retrieval_mode' => $retrievalMode
             ]);
             
             $ch = curl_init();
@@ -444,6 +441,7 @@ class ChatController extends BaseController
             $userId = $this->request->user->user_id;
             $sessionId = $data['session_id'] ?? null;
             $provider = $data['provider'] ?? null;
+            $model = $data['model'] ?? null;
             
             if (!$sessionId) {
                 return $this->response->setJSON([
@@ -480,7 +478,8 @@ class ChatController extends BaseController
             $postData = json_encode([
                 'pdf_ids' => $pdfIds,
                 'user_id' => $userId,
-                'provider' => $provider
+                'provider' => $provider,
+                'model' => $model
             ]);
             
             $ch = curl_init();
@@ -692,7 +691,7 @@ class ChatController extends BaseController
         }
     }
     
-    private function sendToAI($question, $pdfIds, $userId, $sessionId, $conversationHistory = [], $provider = null)
+    private function sendToAI($question, $pdfIds, $userId, $sessionId, $conversationHistory = [], $provider = null, $model = null, $retrievalMode = null)
     {
         $pythonServerUrl = getenv('PYTHON_SERVER_URL') ?: 'http://localhost:5000';
         
@@ -702,7 +701,9 @@ class ChatController extends BaseController
             'user_id' => $userId,
             'session_id' => $sessionId,
             'conversation_history' => $conversationHistory,
-            'provider' => $provider
+            'provider' => $provider,
+            'model' => $model,
+            'retrieval_mode' => $retrievalMode
         ]);
         
         $ch = curl_init();

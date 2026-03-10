@@ -363,12 +363,40 @@ class DocumentProcessor:
                     except Exception as e:
                         pass
             
+            # === PageIndex Tree Generation (error-isolated) ===
+            tree_file_id = None
+            tree_status = 'pending'
+            try:
+                from .pageindex_service import PageIndexService
+
+                # Check if tree generation mode is "on_upload" (default)
+                # This reads from environment; can be overridden per-request
+                tree_gen_mode = os.getenv('PAGEINDEX_TREE_GEN_MODE', 'on_upload')
+                if tree_gen_mode == 'on_upload':
+                    logger.info(f"Starting PageIndex tree generation for PDF {pdf_id}")
+                    pageindex_svc = PageIndexService()
+                    tree_result = pageindex_svc.generate_tree_from_pages(pages_data, pdf_id)
+                    if tree_result.get('status') == 'success':
+                        tree_file_id = tree_result.get('tree_file_id')
+                        tree_status = 'completed'
+                        logger.info(f"PageIndex tree completed: {tree_result.get('node_count')} nodes")
+                    else:
+                        tree_status = 'failed'
+                        logger.warning(f"PageIndex tree generation returned error: {tree_result.get('message')}")
+                else:
+                    tree_status = 'pending'
+                    logger.info("PageIndex tree gen mode is 'manual', skipping auto-generation")
+            except Exception as tree_err:
+                tree_status = 'failed'
+                logger.error(f"PageIndex tree generation failed (non-blocking): {tree_err}")
+
             # Update PDF processing status to 100% completed
             cursor.execute("""
                 UPDATE pdfs 
-                SET processing_status = 'completed', processing_progress = 100, page_count = %s
+                SET processing_status = 'completed', processing_progress = 100, page_count = %s,
+                    tree_file_id = %s, tree_status = %s
                 WHERE pdf_id = %s
-            """, (len(pages_data), pdf_id))
+            """, (len(pages_data), tree_file_id, tree_status, pdf_id))
             
             # Commit transaction
             conn.commit()
@@ -382,7 +410,9 @@ class DocumentProcessor:
                 'data': {
                     'chunk_count': successful_chunks,
                     'page_count': len(pages_data),
-                    'total_chunks': len(all_chunks)
+                    'total_chunks': len(all_chunks),
+                    'tree_status': tree_status,
+                    'tree_file_id': tree_file_id
                 }
             }
             

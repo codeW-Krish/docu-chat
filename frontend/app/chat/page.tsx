@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api, PdfFile, LlmProvider } from "@/lib/api";
+import { PROVIDER_MODELS, PROVIDER_LABELS, getDefaultModel, isValidModel } from "@/lib/provider-models";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,14 +32,22 @@ export default function ChatPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [provider, setProvider] = useState<LlmProvider>("groq");
+  const [model, setModel] = useState<string>(getDefaultModel("groq"));
 
   useEffect(() => {
     loadPdfs();
 
     if (typeof window !== "undefined") {
       const savedProvider = localStorage.getItem("chat-provider-default") as LlmProvider | null;
-      if (savedProvider === "groq" || savedProvider === "cerebras") {
+      const validProviders: LlmProvider[] = ["groq", "cerebras", "bytez"];
+      if (savedProvider && validProviders.includes(savedProvider)) {
         setProvider(savedProvider);
+        const savedModel = localStorage.getItem("chat-model-default");
+        if (savedModel && isValidModel(savedProvider, savedModel)) {
+          setModel(savedModel);
+        } else {
+          setModel(getDefaultModel(savedProvider));
+        }
       }
     }
   }, []);
@@ -88,10 +97,12 @@ export default function ChatPage() {
 
     setIsCreating(true);
     try {
-      const response = await api.createSession(sessionName.trim(), selectedPdfs, provider);
+      const response = await api.createSession(sessionName.trim(), selectedPdfs, provider, model);
       if (typeof window !== "undefined") {
         localStorage.setItem("chat-provider-default", provider);
+        localStorage.setItem("chat-model-default", model);
         localStorage.setItem(`chat-provider-session-${response.session.session_id}`, provider);
+        localStorage.setItem(`chat-model-session-${response.session.session_id}`, model);
       }
       toast({
         title: "Session Created",
@@ -268,14 +279,41 @@ export default function ChatPage() {
                     <Label className="text-sm font-semibold text-zinc-900 dark:text-gray-300">AI Provider</Label>
                     <Select
                       value={provider}
-                      onValueChange={(value) => setProvider(value as LlmProvider)}
+                      onValueChange={(value) => {
+                        const p = value as LlmProvider;
+                        setProvider(p);
+                        setModel(getDefaultModel(p));
+                      }}
                     >
                       <SelectTrigger className="w-full bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl h-11 focus:ring-1 focus:ring-lime-accent text-zinc-900 dark:text-white font-medium">
                         <SelectValue placeholder="Select provider" />
                       </SelectTrigger>
                       <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
-                        <SelectItem value="groq" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Groq</SelectItem>
-                        <SelectItem value="cerebras" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Cerebras</SelectItem>
+                        {Object.entries(PROVIDER_LABELS).map(([key, label]) => (
+                          <SelectItem key={key} value={key} className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-zinc-900 dark:text-gray-300">AI Model</Label>
+                    <Select
+                      value={model}
+                      onValueChange={(value) => setModel(value)}
+                    >
+                      <SelectTrigger className="w-full bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl h-11 focus:ring-1 focus:ring-lime-accent text-zinc-900 dark:text-white font-medium">
+                        <SelectValue placeholder="Select model" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
+                        {(PROVIDER_MODELS[provider] || []).map((m) => (
+                          <SelectItem key={m.id} value={m.id} className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">
+                            <span className="flex items-center gap-2">
+                              {m.name}
+                              <span className="text-[10px] text-zinc-400">{m.context}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

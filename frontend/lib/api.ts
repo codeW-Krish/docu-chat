@@ -37,6 +37,7 @@ export interface PdfReference {
   chunk_index: number;
   chunk_text: string;
   similarity: number;
+  source?: 'vector' | 'pageindex';
 }
 
 export interface ChatMessage {
@@ -93,9 +94,12 @@ export interface SendMessageData {
   message: string;
   pdf_ids?: string[];
   provider?: LlmProvider;
+  model?: string;
+  retrieval_mode?: RetrievalMode;
 }
 
-export type LlmProvider = 'groq' | 'cerebras';
+export type LlmProvider = 'groq' | 'cerebras' | 'bytez';
+export type RetrievalMode = 'vector' | 'pageindex' | 'comparison';
 
 class ApiClient {
   private baseUrl: string;
@@ -634,20 +638,21 @@ class ApiClient {
   }
 
   // 💬 CHAT ENDPOINTS
-  async generateSummary(sessionId: string, provider?: LlmProvider): Promise<ApiResponse<{ summary: string }>> {
+  async generateSummary(sessionId: string, provider?: LlmProvider, model?: string): Promise<ApiResponse<{ summary: string }>> {
     return this.request<ApiResponse<{ summary: string }>>('/api/chat/summary', {
       method: 'POST',
-      body: JSON.stringify({ session_id: sessionId, provider }),
+      body: JSON.stringify({ session_id: sessionId, provider, model }),
     });
   }
 
-  async createSession(name: string, pdfIds: string[], provider?: LlmProvider): Promise<{ session: ChatSession }> {
+  async createSession(name: string, pdfIds: string[], provider?: LlmProvider, model?: string): Promise<{ session: ChatSession }> {
     const response = await this.request<ApiResponse<ChatSession>>('/api/chat/sessions', {
       method: 'POST',
       body: JSON.stringify({
         session_name: name,
         pdf_ids: pdfIds,
-        provider
+        provider,
+        model
       }),
     });
 
@@ -693,7 +698,7 @@ class ApiClient {
     };
   }
 
-  async sendMessage(sessionId: string, message: string, pdfIds?: string[], provider?: LlmProvider): Promise<{
+  async sendMessage(sessionId: string, message: string, pdfIds?: string[], provider?: LlmProvider, model?: string, retrievalMode?: RetrievalMode): Promise<{
     user_message: string;
     ai_response: string;
     references: PdfReference[];
@@ -712,7 +717,9 @@ class ApiClient {
         session_id: sessionId,
         message: message,
         pdf_ids: pdfIds,
-        provider
+        provider,
+        model,
+        retrieval_mode: retrievalMode
       }),
     });
 
@@ -724,7 +731,9 @@ class ApiClient {
     message: string,
     pdfIds?: string[],
     provider?: LlmProvider,
-    onChunk?: (chunk: any) => void
+    onChunk?: (chunk: any) => void,
+    model?: string,
+    retrievalMode?: RetrievalMode
   ): Promise<void> {
     const url = `${this.baseUrl}/api/chat/message/stream`;
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -740,7 +749,9 @@ class ApiClient {
         session_id: sessionId,
         message: message,
         pdf_ids: pdfIds,
-        provider: provider
+        provider: provider,
+        model: model,
+        retrieval_mode: retrievalMode
       }),
       credentials: 'include'
     });

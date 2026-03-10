@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { api, PdfFile, ChatMessage, LlmProvider } from "@/lib/api";
+import { api, PdfFile, ChatMessage, LlmProvider, RetrievalMode, PdfReference } from "@/lib/api";
+import { PROVIDER_MODELS, PROVIDER_LABELS, getDefaultModel, isValidModel } from "@/lib/provider-models";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -69,14 +70,6 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
 
-interface PdfReference {
-  pdf_id: string;
-  pdf_name: string;
-  page_number: number;
-  chunk_index: number;
-  chunk_text: string;
-  similarity: number;
-}
 
 interface ChatSession {
   session_id: string;
@@ -109,6 +102,8 @@ export default function ChatSessionPage() {
   const [selectedPdfIds, setSelectedPdfIds] = useState<Set<string>>(new Set());
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [provider, setProvider] = useState<LlmProvider>("groq");
+  const [model, setModel] = useState<string>(getDefaultModel("groq"));
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("vector");
 
   // Voice Mode State
   const [isListening, setIsListening] = useState(false);
@@ -137,19 +132,38 @@ export default function ChatSessionPage() {
       ? (localStorage.getItem("chat-provider-default") as LlmProvider | null)
       : null;
 
+    const validProviders: LlmProvider[] = ["groq", "cerebras", "bytez"];
+    const isValid = (p: string | null): p is LlmProvider => validProviders.includes(p as LlmProvider);
+
     const resolvedProvider =
-      queryProvider === "groq" || queryProvider === "cerebras"
-        ? queryProvider
-        : sessionProvider === "groq" || sessionProvider === "cerebras"
-          ? sessionProvider
-          : defaultProvider === "groq" || defaultProvider === "cerebras"
-            ? defaultProvider
+      isValid(queryProvider) ? queryProvider
+        : isValid(sessionProvider) ? sessionProvider
+          : isValid(defaultProvider) ? defaultProvider
             : "groq";
 
     setProvider(resolvedProvider);
+
+    // Resolve model
+    const savedModel = typeof window !== "undefined"
+      ? localStorage.getItem(`chat-model-session-${sessionId}`) || localStorage.getItem("chat-model-default")
+      : null;
+    const resolvedModel = savedModel && isValidModel(resolvedProvider, savedModel)
+      ? savedModel
+      : getDefaultModel(resolvedProvider);
+    setModel(resolvedModel);
+
+    // Resolve retrieval mode
+    const savedRetrievalMode = typeof window !== "undefined"
+      ? localStorage.getItem("chat-retrieval-mode") as RetrievalMode | null
+      : null;
+    if (savedRetrievalMode === "vector" || savedRetrievalMode === "pageindex" || savedRetrievalMode === "comparison") {
+      setRetrievalMode(savedRetrievalMode);
+    }
+
     if (typeof window !== "undefined") {
       localStorage.setItem(`chat-provider-session-${sessionId}`, resolvedProvider);
       localStorage.setItem("chat-provider-default", resolvedProvider);
+      localStorage.setItem(`chat-model-session-${sessionId}`, resolvedModel);
     }
 
     loadSessionData(resolvedProvider);
@@ -225,10 +239,10 @@ export default function ChatSessionPage() {
     }
   };
 
-  const generateAutoSummary = async (sid: string, activeProvider: LlmProvider = provider) => {
+  const generateAutoSummary = async (sid: string, activeProvider: LlmProvider = provider, activeModel: string = model) => {
     try {
       setIsSending(true); // Show loading state
-      const response = await api.generateSummary(sid, activeProvider);
+      const response = await api.generateSummary(sid, activeProvider, activeModel);
 
       if (response.data && response.data.summary) {
         // Add summary message
@@ -376,7 +390,9 @@ export default function ChatSessionPage() {
               variant: "destructive",
             });
           }
-        }
+        },
+        model,
+        retrievalMode
       );
 
     } catch (error: any) {
@@ -419,9 +435,96 @@ export default function ChatSessionPage() {
   const handleProviderChange = (value: string) => {
     const selectedProvider = value as LlmProvider;
     setProvider(selectedProvider);
+    // Reset model to default for new provider
+    const newModel = getDefaultModel(selectedProvider);
+    setModel(newModel);
     if (typeof window !== "undefined") {
       localStorage.setItem("chat-provider-default", selectedProvider);
       localStorage.setItem(`chat-provider-session-${sessionId}`, selectedProvider);
+      localStorage.setItem("chat-model-default", newModel);
+      localStorage.setItem(`chat-model-session-${sessionId}`, newModel);
+    }
+  };
+
+  const handleModelChange = (value: string) => {
+    setModel(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chat-model-default", value);
+      localStorage.setItem(`chat-model-session-${sessionId}`, value);
+    }
+  };
+
+  const handleRetrievalModeChange = (value: string) => {
+    setRetrievalMode(value as RetrievalMode);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chat-retrieval-mode", value);
+    }
+  };
+
+  const markdownComponents: any = {
+    code({ node, inline, className, children, ...props }: any) {
+      const match = /language-(\w+)/.exec(className || '')
+      return !inline && match ? (
+        <div className="relative rounded-xl overflow-hidden my-4 border border-zinc-200 dark:border-white/10 bg-zinc-900 dark:bg-[#111] shadow-sm">
+          <div className="bg-zinc-800/50 dark:bg-white/5 px-4 py-2 text-xs text-zinc-400 dark:text-gray-500 border-b border-zinc-800 dark:border-white/5 flex items-center justify-between font-mono font-medium">
+            <span>{match[1]}</span>
+          </div>
+          <div className="p-4 overflow-x-auto custom-scrollbar w-full relative max-w-[calc(100vw-4rem)] md:max-w-none box-border">
+            <code className={className} {...props}>
+              {children}
+            </code>
+          </div>
+        </div>
+      ) : (
+        <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 break-words whitespace-pre-wrap`} {...props}>
+          {children}
+        </code>
+      )
+    },
+    p({ children }: any) {
+      return <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
+    },
+    ul({ children }: any) {
+      return <ul className="list-disc pl-5 mb-4 space-y-1.5 marker:text-zinc-400 dark:marker:text-zinc-600">{children}</ul>
+    },
+    ol({ children }: any) {
+      return <ol className="list-decimal pl-5 mb-4 space-y-1.5 marker:text-zinc-400 dark:marker:text-zinc-600 marker:font-semibold">{children}</ol>
+    },
+    li({ children }: any) {
+      return <li className="pl-1 leading-relaxed">{children}</li>
+    },
+    h1({ children }: any) {
+      return <h1 className="text-xl md:text-2xl font-bold mb-4 mt-6 first:mt-0 tracking-tight text-zinc-900 dark:text-white">{children}</h1>
+    },
+    h2({ children }: any) {
+      return <h2 className="text-lg md:text-xl font-bold mb-3 mt-5 first:mt-0 tracking-tight text-zinc-900 dark:text-white">{children}</h2>
+    },
+    h3({ children }: any) {
+      return <h3 className="text-base md:text-lg font-bold mb-2 mt-4 first:mt-0 text-zinc-900 dark:text-white">{children}</h3>
+    },
+    blockquote({ children }: any) {
+      return <blockquote className="border-l-4 border-lime-300 dark:border-lime-700 bg-lime-50/50 dark:bg-lime-900/10 rounded-r-xl px-4 py-3 my-4 italic text-zinc-600 dark:text-gray-400">{children}</blockquote>
+    },
+    a({ href, children }: any) {
+      return <a href={href} target="_blank" rel="noopener noreferrer" className="text-lime-600 dark:text-lime-accent hover:text-lime-700 dark:hover:text-lime-400 hover:underline underline-offset-4 font-semibold transition-colors">{children}</a>
+    },
+    table({ children }: any) {
+      return <div className="overflow-x-auto my-5 rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111] shadow-sm"><table className="w-full text-sm text-left">{children}</table></div>
+    },
+    thead({ children }: any) {
+      return <thead className="bg-zinc-50 dark:bg-white/5 text-xs uppercase text-zinc-500 dark:text-gray-400 font-bold border-b border-zinc-200 dark:border-white/10">{children}</thead>
+    },
+    tbody({ children }: any) {
+      return <tbody className="divide-y divide-zinc-100 dark:divide-white/5">{children}</tbody>
+    },
+    tr({ children }: any) {
+      return <tr className="hover:bg-zinc-50/50 dark:hover:bg-white/[0.02] transition-colors">{children}</tr>
+    },
+    th({ children }: any) {
+      return <th className="px-4 py-3 align-top">{children}</th>
+    },
+    td({ children }: any) {
+      return <td className="px-4 py-3 align-top">{children}</td>
     }
   };
 
@@ -430,13 +533,23 @@ export default function ChatSessionPage() {
     const references = message.references as PdfReference[] || [];
     const suggestions = message.suggested_questions || [];
 
+    const isComparison = !isUser && message.message_text.includes("|||COMPARISON_SPLIT|||");
+    let vectorText = message.message_text;
+    let pageIndexText = "";
+
+    if (isComparison) {
+      const parts = message.message_text.split("|||COMPARISON_SPLIT|||");
+      vectorText = parts[0] || "";
+      pageIndexText = parts[1] || "";
+    }
+
     return (
       <div key={message.message_id} className={`flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 group/message w-full overflow-hidden box-border`}>
         <div className={`flex gap-2 md:gap-4 w-full box-border ${isUser ? 'justify-end' : 'justify-start'}`}>
-          <div className={`flex gap-2 md:gap-3 w-full sm:w-auto max-w-full md:max-w-[85%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+          <div className={`flex gap-2 md:gap-3 w-full max-w-full ${isComparison ? 'md:max-w-full' : 'md:max-w-[85%] sm:w-auto'} ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
             {/* Avatar */}
             <div className={`
-              flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] dark:shadow-none border
+              flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] dark:shadow-none border mt-1
               ${isUser
                 ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 border-transparent'
                 : 'bg-white dark:bg-[#111] text-zinc-900 dark:text-white border-zinc-200 dark:border-white/10'
@@ -447,125 +560,129 @@ export default function ChatSessionPage() {
 
             {/* Message Content */}
             <div className={`space-y-2 flex-1 ${isUser ? 'text-right' : 'text-left'} min-w-0 max-w-full w-full overflow-hidden box-border shrink`}>
-              <div className={`
-                p-3.5 md:p-5 relative transition-all duration-200 break-words [overflow-wrap:break-word] w-full max-w-full box-border
-                ${isUser
-                  ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 rounded-[1.5rem] rounded-tr-sm shadow-[0_4px_14px_0_rgba(0,0,0,0.1)] dark:shadow-none'
-                  : 'bg-white dark:bg-[#111] border border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-[1.5rem] rounded-tl-sm shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none hover:shadow-[0_4px_20px_-8px_rgba(0,0,0,0.1)] dark:hover:border-white/20'
-                }
-              `}>
-                <div className={`prose prose-sm dark:prose-invert max-w-full w-full break-words [overflow-wrap:break-word] overflow-x-auto leading-relaxed font-medium box-border ${isUser ? 'prose-p:text-white/90 dark:prose-p:text-zinc-900/90 text-white dark:text-zinc-900' : 'prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white'} prose-pre:bg-zinc-900 dark:prose-pre:bg-[#111] prose-pre:border prose-pre:border-zinc-800 dark:prose-pre:border-white/10`}>
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[rehypeHighlight]}
-                    components={{
-                      code({ node, inline, className, children, ...props }: any) {
-                        const match = /language-(\w+)/.exec(className || '')
-                        return !inline && match ? (
-                          <div className="relative rounded-xl overflow-hidden my-4 border border-zinc-200 dark:border-white/10 bg-zinc-900 dark:bg-[#111] shadow-sm">
-                            <div className="bg-zinc-800/50 dark:bg-white/5 px-4 py-2 text-xs text-zinc-400 dark:text-gray-500 border-b border-zinc-800 dark:border-white/5 flex items-center justify-between font-mono font-medium">
-                              <span>{match[1]}</span>
-                            </div>
-                            <div className="p-4 overflow-x-auto custom-scrollbar w-full relative max-w-[calc(100vw-4rem)] md:max-w-none box-border">
-                              <code className={className} {...props}>
-                                {children}
-                              </code>
-                            </div>
-                          </div>
-                        ) : (
-                          <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 break-words whitespace-pre-wrap ${isUser ? 'bg-white/20 dark:bg-black/10 text-white dark:text-black' : ''}`} {...props}>
-                            {children}
-                          </code>
-                        )
-                      },
-                      p({ children }) {
-                        return <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
-                      },
-                      ul({ children }) {
-                        return <ul className="list-disc pl-5 mb-4 space-y-1.5 marker:text-zinc-400 dark:marker:text-zinc-600">{children}</ul>
-                      },
-                      ol({ children }) {
-                        return <ol className="list-decimal pl-5 mb-4 space-y-1.5 marker:text-zinc-400 dark:marker:text-zinc-600 marker:font-semibold">{children}</ol>
-                      },
-                      li({ children }) {
-                        return <li className="pl-1 leading-relaxed">{children}</li>
-                      },
-                      h1({ children }) {
-                        return <h1 className="text-xl md:text-2xl font-bold mb-4 mt-6 first:mt-0 tracking-tight text-zinc-900 dark:text-white">{children}</h1>
-                      },
-                      h2({ children }) {
-                        return <h2 className="text-lg md:text-xl font-bold mb-3 mt-5 first:mt-0 tracking-tight text-zinc-900 dark:text-white">{children}</h2>
-                      },
-                      h3({ children }) {
-                        return <h3 className="text-base md:text-lg font-bold mb-2 mt-4 first:mt-0 text-zinc-900 dark:text-white">{children}</h3>
-                      },
-                      blockquote({ children }) {
-                        return <blockquote className="border-l-4 border-lime-300 dark:border-lime-700 bg-lime-50/50 dark:bg-lime-900/10 rounded-r-xl px-4 py-3 my-4 italic text-zinc-600 dark:text-gray-400">{children}</blockquote>
-                      },
-                      a({ href, children }) {
-                        return <a href={href} target="_blank" rel="noopener noreferrer" className="text-lime-600 dark:text-lime-accent hover:text-lime-700 dark:hover:text-lime-400 hover:underline underline-offset-4 font-semibold transition-colors">{children}</a>
-                      },
-                      table({ children }) {
-                        return <div className="overflow-x-auto my-5 rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111] shadow-sm"><table className="w-full text-sm text-left">{children}</table></div>
-                      },
-                      thead({ children }) {
-                        return <thead className="bg-zinc-50 dark:bg-white/5 text-xs uppercase text-zinc-500 dark:text-gray-400 font-bold border-b border-zinc-200 dark:border-white/10">{children}</thead>
-                      },
-                      tbody({ children }) {
-                        return <tbody className="divide-y divide-zinc-100 dark:divide-white/5">{children}</tbody>
-                      },
-                      tr({ children }) {
-                        return <tr className="hover:bg-zinc-50/50 dark:hover:bg-white/[0.02] transition-colors">{children}</tr>
-                      },
-                      th({ children }) {
-                        return <th className="px-4 py-3 align-top">{children}</th>
-                      },
-                      td({ children }) {
-                        return <td className="px-4 py-3 align-top">{children}</td>
-                      }
-                    }}
-                  >
-                    {message.message_text}
-                  </ReactMarkdown>
-                </div>
-
-                {/* Text to Speech Button */}
-                {!isUser && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute -right-8 md:-right-10 top-0 h-7 w-7 md:h-8 md:w-8 text-zinc-400 dark:text-gray-500 hover:text-lime-600 dark:hover:text-lime-accent opacity-100 md:opacity-0 group-hover/message:opacity-100 transition-all duration-200"
-                    onClick={() => speakMessage(message.message_text, message.message_id)}
-                  >
-                    {isSpeaking && speakingMessageId === message.message_id ? (
-                      <VolumeX className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                    ) : (
-                      <Volume2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                    )}
-                  </Button>
-                )}
-              </div>
-
-              {/* References */}
-              {!isUser && references.length > 0 && (
-                <div className="space-y-2 pl-1 pt-1.5">
-                  <div className="text-[10px] md:text-[11px] font-bold text-zinc-500 dark:text-gray-400 flex items-center gap-1.5 uppercase tracking-wider">
-                    <BookOpen className="h-3 w-3 md:h-3.5 md:w-3.5 text-lime-600 dark:text-lime-accent" />
-                    Sources ({references.length})
+              {isComparison ? (
+                /* Comparison Mode Layout */
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                  {/* Vector RAG Column */}
+                  <div className="p-4 md:p-6 bg-yellow-50/30 dark:bg-yellow-900/10 border border-yellow-200/50 dark:border-yellow-500/20 rounded-[1.5rem] rounded-tl-sm shadow-sm relative transition-all duration-200 w-full overflow-hidden box-border">
+                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-yellow-200/50 dark:border-yellow-500/20">
+                      <div className="p-1.5 bg-yellow-100 dark:bg-yellow-500/20 rounded-md">
+                        <MessageSquare className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+                      </div>
+                      <h3 className="font-bold text-sm text-yellow-800 dark:text-yellow-500 uppercase tracking-wider">Vector RAG</h3>
+                    </div>
+                    <div className="prose prose-sm dark:prose-invert max-w-full w-full break-words [overflow-wrap:break-word] overflow-x-auto leading-relaxed font-medium prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
+                        {vectorText}
+                      </ReactMarkdown>
+                    </div>
                   </div>
-                  <div className="grid gap-2">
-                    {references.map((ref, index) => (
+
+                  {/* PageIndex Column */}
+                  <div className="p-4 md:p-6 bg-lime-50/30 dark:bg-lime-900/10 border border-lime-200/50 dark:border-lime-500/20 rounded-[1.5rem] rounded-tr-sm shadow-sm relative transition-all duration-200 w-full overflow-hidden box-border">
+                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-lime-200/50 dark:border-lime-500/20">
+                      <div className="p-1.5 bg-lime-100 dark:bg-lime-500/20 rounded-md">
+                        <BookOpen className="h-4 w-4 text-lime-600 dark:text-lime-accent" />
+                      </div>
+                      <h3 className="font-bold text-sm text-lime-800 dark:text-lime-accent uppercase tracking-wider">PageIndex</h3>
+                    </div>
+                    <div className="prose prose-sm dark:prose-invert max-w-full w-full break-words [overflow-wrap:break-word] overflow-x-auto leading-relaxed font-medium prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
+                        {pageIndexText}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Standard Message Layout */
+                <div className={`
+                  p-3.5 md:p-5 relative transition-all duration-200 break-words [overflow-wrap:break-word] w-full max-w-full box-border
+                  ${isUser
+                    ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 rounded-[1.5rem] rounded-tr-sm shadow-[0_4px_14px_0_rgba(0,0,0,0.1)] dark:shadow-none'
+                    : 'bg-white dark:bg-[#111] border border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white rounded-[1.5rem] rounded-tl-sm shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none hover:shadow-[0_4px_20px_-8px_rgba(0,0,0,0.1)] dark:hover:border-white/20'
+                  }
+                `}>
+                  <div className={`prose prose-sm dark:prose-invert max-w-full w-full break-words [overflow-wrap:break-word] overflow-x-auto leading-relaxed font-medium box-border ${isUser ? 'prose-p:text-white/90 dark:prose-p:text-zinc-900/90 text-white dark:text-zinc-900' : 'prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white'} prose-pre:bg-zinc-900 dark:prose-pre:bg-[#111] prose-pre:border prose-pre:border-zinc-800 dark:prose-pre:border-white/10`}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeHighlight]}
+                      components={{
+                        ...markdownComponents,
+                        code({ node, inline, className, children, ...props }: any) {
+                          const match = /language-(\w+)/.exec(className || '')
+                          return !inline && match ? (
+                            <div className="relative rounded-xl overflow-hidden my-4 border border-zinc-200 dark:border-white/10 bg-zinc-900 dark:bg-[#111] shadow-sm">
+                              <div className="bg-zinc-800/50 dark:bg-white/5 px-4 py-2 text-xs text-zinc-400 dark:text-gray-500 border-b border-zinc-800 dark:border-white/5 flex items-center justify-between font-mono font-medium">
+                                <span>{match[1]}</span>
+                              </div>
+                              <div className="p-4 overflow-x-auto custom-scrollbar w-full relative max-w-[calc(100vw-4rem)] md:max-w-none box-border">
+                                <code className={className} {...props}>
+                                  {children}
+                                </code>
+                              </div>
+                            </div>
+                          ) : (
+                            <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 break-words whitespace-pre-wrap ${isUser ? 'bg-white/20 dark:bg-black/10 text-white dark:text-black' : ''}`} {...props}>
+                              {children}
+                            </code>
+                          )
+                        }
+                      }}
+                    >
+                      {message.message_text}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              )}
+              {/* Text to Speech Button */}
+              {!isUser && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute -right-8 md:-right-10 top-0 h-7 w-7 md:h-8 md:w-8 text-zinc-400 dark:text-gray-500 hover:text-lime-600 dark:hover:text-lime-accent opacity-100 md:opacity-0 group-hover/message:opacity-100 transition-all duration-200"
+                  onClick={() => speakMessage(message.message_text, message.message_id)}
+                >
+                  {isSpeaking && speakingMessageId === message.message_id ? (
+                    <VolumeX className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                  ) : (
+                    <Volume2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                  )}
+                </Button>
+              )}
+            </div>
+
+            {/* References */}
+            {!isUser && references.length > 0 && (
+              <div className="space-y-2 pl-1 pt-1.5">
+                <div className="text-[10px] md:text-[11px] font-bold text-zinc-500 dark:text-gray-400 flex items-center gap-1.5 uppercase tracking-wider">
+                  <BookOpen className="h-3 w-3 md:h-3.5 md:w-3.5 text-lime-600 dark:text-lime-accent" />
+                  Sources ({references.length})
+                </div>
+                <div className="grid gap-2">
+                  {references.map((ref, index) => {
+                    const isVector = ref.source !== 'pageindex';
+                    const borderColor = isVector
+                      ? "hover:border-yellow-300 dark:hover:border-yellow-500/50"
+                      : "hover:border-lime-300 dark:hover:border-lime-500/50";
+                    const hoverTextColor = isVector
+                      ? "group-hover/ref:text-yellow-600 dark:group-hover/ref:text-yellow-500"
+                      : "group-hover/ref:text-lime-600 dark:group-hover/ref:text-lime-accent";
+                    const badgeClass = isVector
+                      ? "bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-500 border-yellow-200 dark:border-yellow-500/20 group-hover/ref:bg-yellow-100 dark:group-hover/ref:bg-yellow-500/20"
+                      : "bg-lime-50 dark:bg-lime-accent/10 text-lime-700 dark:text-lime-accent border-lime-200 dark:border-lime-accent/20 group-hover/ref:bg-lime-100 dark:group-hover/ref:bg-lime-accent/20";
+
+                    return (
                       <div
                         key={index}
-                        className="text-xs p-3 md:p-3.5 bg-white dark:bg-[#1A1A1A] border border-zinc-200 dark:border-white/5 rounded-xl cursor-pointer hover:border-lime-300 dark:hover:border-lime-500/50 hover:shadow-md dark:shadow-none hover:-translate-y-0.5 transition-all duration-300 group/ref"
+                        className={`text-xs p-3 md:p-3.5 bg-white dark:bg-[#1A1A1A] border border-zinc-200 dark:border-white/5 rounded-xl cursor-pointer hover:shadow-md dark:shadow-none hover:-translate-y-0.5 transition-all duration-300 group/ref ${borderColor}`}
                         onClick={() => handleReferenceClick(ref)}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-bold text-zinc-900 dark:text-white group-hover/ref:text-lime-600 dark:group-hover/ref:text-lime-accent transition-colors line-clamp-1 pr-2">
+                          <span className={`font-bold text-zinc-900 dark:text-white transition-colors line-clamp-1 pr-2 ${hoverTextColor}`}>
                             {ref.pdf_name}
                           </span>
-                          <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-bold bg-lime-50 dark:bg-lime-accent/10 text-lime-700 dark:text-lime-accent border border-lime-200 dark:border-lime-accent/20 group-hover/ref:bg-lime-100 dark:group-hover/ref:bg-lime-accent/20 transition-colors whitespace-nowrap">
-                            {Math.round(ref.similarity * 100)}% match
+                          <Badge variant="secondary" className={`text-[10px] h-5 px-1.5 font-bold border transition-colors whitespace-nowrap ${badgeClass}`}>
+                            {isVector ? `${Math.round(ref.similarity * 100)}% MATCH` : 'PAGEINDEX'}
                           </Badge>
                         </div>
                         <div className="text-zinc-600 dark:text-gray-300 line-clamp-2 leading-relaxed font-serif italic text-[11px] md:text-xs">
@@ -576,11 +693,11 @@ export default function ChatSessionPage() {
                           Page {ref.page_number}
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    )
+                  })}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -790,12 +907,40 @@ export default function ChatSessionPage() {
 
         <div className="flex items-center gap-1 md:gap-2 shrink-0">
           <Select value={provider} onValueChange={handleProviderChange}>
-            <SelectTrigger className="h-9 w-[104px] md:w-[130px] bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white font-medium rounded-lg focus:ring-1 focus:ring-lime-accent">
+            <SelectTrigger className="h-9 w-[90px] md:w-[110px] bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white font-medium rounded-lg focus:ring-1 focus:ring-lime-accent text-xs">
               <SelectValue placeholder="Provider" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
-              <SelectItem value="groq" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Groq</SelectItem>
-              <SelectItem value="cerebras" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Cerebras</SelectItem>
+              {Object.entries(PROVIDER_LABELS).map(([key, label]) => (
+                <SelectItem key={key} value={key} className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={model} onValueChange={handleModelChange}>
+            <SelectTrigger className="h-9 w-[120px] md:w-[160px] bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white font-medium rounded-lg focus:ring-1 focus:ring-lime-accent text-xs">
+              <SelectValue placeholder="Model" />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
+              {(PROVIDER_MODELS[provider] || []).map((m) => (
+                <SelectItem key={m.id} value={m.id} className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">
+                  <span className="flex items-center gap-2">
+                    {m.name}
+                    <span className="text-[10px] text-zinc-400">{m.context}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={retrievalMode} onValueChange={handleRetrievalModeChange}>
+            <SelectTrigger className="h-9 w-[90px] md:w-[120px] bg-zinc-50 dark:bg-[#111] border-zinc-200 dark:border-white/10 text-zinc-900 dark:text-white font-medium rounded-lg focus:ring-1 focus:ring-lime-accent text-xs">
+              <SelectValue placeholder="Mode" />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
+              <SelectItem value="vector" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Vector</SelectItem>
+              <SelectItem value="pageindex" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">PageIndex</SelectItem>
+              <SelectItem value="comparison" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Compare</SelectItem>
             </SelectContent>
           </Select>
 

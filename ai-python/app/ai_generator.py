@@ -10,6 +10,11 @@ try:
 except Exception:
     Cerebras = None
 
+try:
+    from openai import OpenAI as OpenAIClient
+except Exception:
+    OpenAIClient = None
+
 logger = logging.getLogger(__name__)
 
 class AIGenerator:
@@ -19,21 +24,33 @@ class AIGenerator:
             self.default_provider = (os.getenv('LLM_PROVIDER') or 'groq').lower()
             self.groq_model = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
             self.cerebras_model = os.getenv('CEREBRAS_MODEL', 'llama3.1-70b')
+            self.bytez_model = os.getenv('BYTEZ_MODEL', 'gpt-4o-mini')
 
             self.cerebras_client = None
             cerebras_api_key = os.getenv('CEREBRAS_API_KEY')
             if Cerebras and cerebras_api_key:
                 self.cerebras_client = Cerebras(api_key=cerebras_api_key)
 
+            # Bytez uses OpenAI-compatible API
+            self.bytez_client = None
+            bytez_api_key = os.getenv('BYTEZ_API_KEY')
+            if OpenAIClient and bytez_api_key:
+                self.bytez_client = OpenAIClient(
+                    api_key=bytez_api_key,
+                    base_url="https://api.bytez.com/v1"
+                )
+
             self.vector_search = VectorSearch()
             logger.info("Groq client initialized successfully")
             if self.cerebras_client:
                 logger.info("Cerebras client initialized successfully")
+            if self.bytez_client:
+                logger.info("Bytez client initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize Groq client: {str(e)}")
+            logger.error(f"Failed to initialize AI clients: {str(e)}")
             raise
     
-    def generate_answer(self, question, pdf_ids, user_id, session_id=None, conversation_history=None, provider=None):
+    def generate_answer(self, question, pdf_ids, user_id, session_id=None, conversation_history=None, provider=None, model=None):
         """Generate AI answer with semantic search and references"""
         try:
             logger.info(f"Generating answer for user {user_id}, PDFs: {pdf_ids}")
@@ -50,6 +67,8 @@ class AIGenerator:
                 summary_chunks = self.vector_search.search_similar_chunks(
                     enhanced_question, pdf_ids, user_id, top_k=50, similarity_threshold=0.1
                 )
+                for chunk in summary_chunks:
+                    chunk['source'] = 'vector'
                 if not summary_chunks:
                     logger.warning("No chunks found for summarization")
                     return {
@@ -60,9 +79,9 @@ class AIGenerator:
                 # Concatenate chunk texts
                 full_text = " ".join(chunk["chunk_text"] for chunk in summary_chunks)
                 # Generate summary
-                summary = self.summarize_text(full_text, selected_provider)
+                summary = self.summarize_text(full_text, selected_provider, model=model)
                 # Generate follow‑up suggestions
-                followups = self._generate_followup_questions(summary, enhanced_question, selected_provider)
+                followups = self._generate_followup_questions(summary, enhanced_question, selected_provider, model=model)
                 # Return summary with follow‑up suggestions
                 return {
                     "answer": f"{summary}",
@@ -76,6 +95,8 @@ class AIGenerator:
             relevant_chunks = self.vector_search.search_similar_chunks(
                 enhanced_question, pdf_ids, user_id, top_k=10, similarity_threshold=0.3
             )
+            for chunk in relevant_chunks:
+                chunk['source'] = 'vector'
             
             if not relevant_chunks:
                 logger.warning("No relevant chunks found for question")
@@ -123,10 +144,10 @@ class AIGenerator:
             
             # Generate answer using Groq
             prompt = self._build_prompt(question, context)
-            response = self._call_llm(prompt, provider=selected_provider)
+            response = self._call_llm(prompt, provider=selected_provider, model=model)
             
             # Generate follow-up questions
-            followups = self._generate_followup_questions(response, question, selected_provider)
+            followups = self._generate_followup_questions(response, question, selected_provider, model=model)
             
             # Format answer with references
             formatted_answer = self._add_references(response, relevant_chunks)
@@ -181,12 +202,12 @@ class AIGenerator:
             logger.error(f"Summary generation error: {str(e)}")
             return "Unable to generate summary at this time."
     
-    def summarize_text(self, text, provider=None):
+    def summarize_text(self, text, provider=None, model=None):
         """Summarize the given text using the LLM."""
         prompt = f"""Summarize the following text in a concise paragraph, preserving the main ideas and important details:\n\n{text}"""
-        return self._call_llm(prompt, provider=provider)
+        return self._call_llm(prompt, provider=provider, model=model)
 
-    def _generate_followup_questions(self, context_text, original_question, provider=None):
+    def _generate_followup_questions(self, context_text, original_question, provider=None, model=None):
         """Generate concise follow‑up question suggestions."""
         followup_prompt = f"""Based on the answer below and the original user question, suggest exactly 3 short, relevant follow‑up questions the user might ask to explore the topic further.
         
@@ -205,7 +226,7 @@ class AIGenerator:
         Questions:"""
         
         try:
-            response = self._call_llm(followup_prompt, provider=provider)
+            response = self._call_llm(followup_prompt, provider=provider, model=model)
             # Parse response into a list
             questions = [q.strip() for q in response.split('\n') if q.strip()]
             # Filter out any that look like headers or non-questions if possible, but simple split is usually fine
@@ -246,6 +267,9 @@ class AIGenerator:
     def _resolve_provider(self, provider=None):
         selected = (provider or self.default_provider or 'groq').lower()
 
+        if selected == 'bytez' and self.bytez_client:
+            return 'bytez'
+
         if selected == 'cerebras' and self.cerebras_client:
             return 'cerebras'
 
@@ -258,25 +282,41 @@ class AIGenerator:
         if self.cerebras_client:
             return 'cerebras'
 
+        if self.bytez_client:
+            return 'bytez'
+
         return 'groq'
 
-    def _call_llm(self, prompt, provider=None, max_tokens=2000, temperature=0.2, timeout=60):
+    def _get_model_for_provider(self, provider, model=None):
+        """Resolve which model to use for a given provider"""
+        if model:
+            return model
+        if provider == 'groq':
+            return self.groq_model
+        elif provider == 'cerebras':
+            return self.cerebras_model
+        elif provider == 'bytez':
+            return self.bytez_model
+        return self.groq_model
+
+    def _call_llm(self, prompt, provider=None, model=None, max_tokens=2000, temperature=0.2, timeout=60):
         """Call selected LLM provider to generate response"""
         selected_provider = self._resolve_provider(provider)
+        resolved_model = self._get_model_for_provider(selected_provider, model)
+
+        if selected_provider == 'bytez':
+            return self._call_bytez_llm(prompt, model=resolved_model, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
 
         if selected_provider == 'cerebras':
-            return self._call_cerebras_llm(prompt, max_tokens=max_tokens, temperature=temperature)
+            return self._call_cerebras_llm(prompt, model=resolved_model, max_tokens=max_tokens, temperature=temperature)
 
-        return self._call_groq_llm(prompt, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
+        return self._call_groq_llm(prompt, model=resolved_model, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
 
-    def _call_groq_llm(self, prompt, max_tokens=2000, temperature=0.2, timeout=60):
+    def _call_groq_llm(self, prompt, model=None, max_tokens=2000, temperature=0.2, timeout=60):
         """Call Groq API to generate response"""
         try:
             response = self.client.chat.completions.create(
-                # model="gemma2-9b-it",  # or "mixtral-8x7b-32768" for faster response
-                #model="meta-llama/llama-4-scout-17b-16e-instruct",  #openai/gpt-oss-120b
-                # model="llama-3.3-70b-versatile",
-                model=self.groq_model,
+                model=model or self.groq_model,
                 messages=[
                     {
                         "role": "system",
@@ -298,14 +338,14 @@ class AIGenerator:
             logger.error(f"Groq API error: {str(e)}")
             raise
 
-    def _call_cerebras_llm(self, prompt, max_tokens=2000, temperature=0.2):
+    def _call_cerebras_llm(self, prompt, model=None, max_tokens=2000, temperature=0.2):
         """Call Cerebras API to generate response"""
         if not self.cerebras_client:
             raise Exception("Cerebras client not initialized. Add CEREBRAS_API_KEY in environment.")
 
         try:
             response = self.cerebras_client.chat.completions.create(
-                model=self.cerebras_model,
+                model=model or self.cerebras_model,
                 messages=[
                     {
                         "role": "system",
@@ -324,6 +364,35 @@ class AIGenerator:
 
         except Exception as e:
             logger.error(f"Cerebras API error: {str(e)}")
+            raise
+
+    def _call_bytez_llm(self, prompt, model=None, max_tokens=2000, temperature=0.2, timeout=60):
+        """Call Bytez API (OpenAI-compatible) to generate response"""
+        if not self.bytez_client:
+            raise Exception("Bytez client not initialized. Add BYTEZ_API_KEY in environment.")
+
+        try:
+            response = self.bytez_client.chat.completions.create(
+                model=model or self.bytez_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert AI assistant that provides comprehensive, detailed answers based on document context. Focus on being thorough and educational in your responses."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            logger.error(f"Bytez API error: {str(e)}")
             raise
     
     def _enhance_question_with_context(self, question, conversation_history, provider=None):
@@ -383,7 +452,7 @@ class AIGenerator:
         
         return answer + references_section
 
-    def generate_answer_stream(self, question, pdf_ids, user_id, session_id=None, conversation_history=None, provider=None):
+    def generate_answer_stream(self, question, pdf_ids, user_id, session_id=None, conversation_history=None, provider=None, model=None):
         """Generate AI answer as a stream with semantic search and references"""
         import json
         try:
@@ -396,6 +465,8 @@ class AIGenerator:
                 summary_chunks = self.vector_search.search_similar_chunks(
                     enhanced_question, pdf_ids, user_id, top_k=50, similarity_threshold=0.1
                 )
+                for chunk in summary_chunks:
+                    chunk['source'] = 'vector'
                 if not summary_chunks:
                     yield {"type": "metadata", "references": [], "suggested_questions": [], "provider": selected_provider}
                     yield {"type": "chunk", "content": "Unable to find content to summarize. Please ensure the PDFs contain relevant information."}
@@ -408,11 +479,11 @@ class AIGenerator:
                 yield {"type": "metadata", "references": summary_chunks, "suggested_questions": [], "provider": selected_provider}
                 
                 full_response = ""
-                for chunk in self._call_llm_stream(prompt, provider=selected_provider):
+                for chunk in self._call_llm_stream(prompt, provider=selected_provider, model=model):
                     full_response += chunk
                     yield {"type": "chunk", "content": chunk}
                 
-                followups = self._generate_followup_questions(full_response, enhanced_question, selected_provider)
+                followups = self._generate_followup_questions(full_response, enhanced_question, selected_provider, model=model)
                 yield {"type": "followups", "suggested_questions": followups}
                 yield {"type": "done"}
                 return
@@ -420,6 +491,8 @@ class AIGenerator:
             relevant_chunks = self.vector_search.search_similar_chunks(
                 enhanced_question, pdf_ids, user_id, top_k=10, similarity_threshold=0.3
             )
+            for chunk in relevant_chunks:
+                chunk['source'] = 'vector'
             
             if not relevant_chunks:
                 pdf_names = self.vector_search.get_pdf_names(pdf_ids)
@@ -459,7 +532,7 @@ class AIGenerator:
             yield {"type": "metadata", "references": relevant_chunks, "suggested_questions": [], "provider": selected_provider}
             
             full_response = ""
-            for chunk in self._call_llm_stream(prompt, provider=selected_provider):
+            for chunk in self._call_llm_stream(prompt, provider=selected_provider, model=model):
                 full_response += chunk
                 yield {"type": "chunk", "content": chunk}
             
@@ -469,7 +542,7 @@ class AIGenerator:
             yield {"type": "chunk", "content": references_section}
             full_response += references_section
             
-            followups = self._generate_followup_questions(full_response, question, selected_provider)
+            followups = self._generate_followup_questions(full_response, question, selected_provider, model=model)
             yield {"type": "followups", "suggested_questions": followups}
             yield {"type": "done"}
             
@@ -479,18 +552,21 @@ class AIGenerator:
             yield {"type": "chunk", "content": "I apologize, but I encountered an error while processing your question. Please try again in a moment."}
             yield {"type": "done"}
 
-    def _call_llm_stream(self, prompt, provider=None, max_tokens=2000, temperature=0.2, timeout=60):
+    def _call_llm_stream(self, prompt, provider=None, model=None, max_tokens=2000, temperature=0.2, timeout=60):
         selected_provider = self._resolve_provider(provider)
+        resolved_model = self._get_model_for_provider(selected_provider, model)
 
-        if selected_provider == 'cerebras':
-            yield from self._call_cerebras_llm_stream(prompt, max_tokens=max_tokens, temperature=temperature)
+        if selected_provider == 'bytez':
+            yield from self._call_bytez_llm_stream(prompt, model=resolved_model, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
+        elif selected_provider == 'cerebras':
+            yield from self._call_cerebras_llm_stream(prompt, model=resolved_model, max_tokens=max_tokens, temperature=temperature)
         else:
-            yield from self._call_groq_llm_stream(prompt, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
+            yield from self._call_groq_llm_stream(prompt, model=resolved_model, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
 
-    def _call_groq_llm_stream(self, prompt, max_tokens=2000, temperature=0.2, timeout=60):
+    def _call_groq_llm_stream(self, prompt, model=None, max_tokens=2000, temperature=0.2, timeout=60):
         try:
             response = self.client.chat.completions.create(
-                model=self.groq_model,
+                model=model or self.groq_model,
                 messages=[
                     {
                         "role": "system",
@@ -516,13 +592,13 @@ class AIGenerator:
             logger.error(f"Groq API streaming error: {str(e)}")
             raise
 
-    def _call_cerebras_llm_stream(self, prompt, max_tokens=2000, temperature=0.2):
+    def _call_cerebras_llm_stream(self, prompt, model=None, max_tokens=2000, temperature=0.2):
         if not self.cerebras_client:
             raise Exception("Cerebras client not initialized. Add CEREBRAS_API_KEY in environment.")
 
         try:
             response = self.cerebras_client.chat.completions.create(
-                model=self.cerebras_model,
+                model=model or self.cerebras_model,
                 messages=[
                     {
                         "role": "system",
@@ -545,4 +621,36 @@ class AIGenerator:
 
         except Exception as e:
             logger.error(f"Cerebras API streaming error: {str(e)}")
+            raise
+
+    def _call_bytez_llm_stream(self, prompt, model=None, max_tokens=2000, temperature=0.2, timeout=60):
+        """Call Bytez API (OpenAI-compatible) with streaming"""
+        if not self.bytez_client:
+            raise Exception("Bytez client not initialized. Add BYTEZ_API_KEY in environment.")
+
+        try:
+            response = self.bytez_client.chat.completions.create(
+                model=model or self.bytez_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert AI assistant that provides comprehensive, detailed answers based on document context. Focus on being thorough and educational in your responses."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                stream=True
+            )
+
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content is not None:
+                    yield chunk.choices[0].delta.content
+
+        except Exception as e:
+            logger.error(f"Bytez API streaming error: {str(e)}")
             raise

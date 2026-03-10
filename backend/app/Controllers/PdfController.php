@@ -462,7 +462,20 @@ class PdfController extends BaseController
                     ->setKey(getenv('APPWRITE_API_KEY'));
 
                 $storage = new \Appwrite\Services\Storage($client);
-                $storage->deleteFile(getenv('APPWRITE_STORAGE_BUCKET_ID'), $pdf->file_path);
+                $bucketId = getenv('APPWRITE_STORAGE_BUCKET_ID');
+
+                // Delete the original PDF file
+                $storage->deleteFile($bucketId, $pdf->file_path);
+
+                // Delete the PageIndex tree JSON file if it exists
+                if (!empty($pdf->tree_file_id)) {
+                    try {
+                        $storage->deleteFile($bucketId, $pdf->tree_file_id);
+                        log_message('info', 'Deleted PageIndex tree file: ' . $pdf->tree_file_id);
+                    } catch (\Exception $treeEx) {
+                        log_message('warning', 'Failed to delete tree file from Appwrite: ' . $treeEx->getMessage());
+                    }
+                }
             } catch (\Exception $ex) {
                 log_message('error', 'Failed to delete file from Appwrite: ' . $ex->getMessage());
                 // Still proceed to delete from DB even if Appwrite deletion fails to avoid orphaned DB records
@@ -507,7 +520,8 @@ class PdfController extends BaseController
                     'processing_status' => $pdf->processing_status,
                     'processing_progress' => $pdf->processing_progress ?? 0,
                     'page_count' => $pdf->page_count,
-                    'uploaded_at' => $pdf->uploaded_at
+                    'uploaded_at' => $pdf->uploaded_at,
+                    'tree_status' => $pdf->tree_status ?? 'pending'
                 ]
             ]);
             

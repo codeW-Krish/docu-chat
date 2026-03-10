@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, User, Mail, Lock, Save, ArrowLeft, CheckCircle, AlertCircle } from "lucide-react"
+import { Loader2, User, Mail, Lock, Save, ArrowLeft, CheckCircle, AlertCircle, Settings, Bot } from "lucide-react"
 import Link from "next/link"
-import { api } from "@/lib/api"
+import { api, LlmProvider, RetrievalMode } from "@/lib/api"
+import { PROVIDER_MODELS, PROVIDER_LABELS, getDefaultModel, isValidModel } from "@/lib/provider-models"
 
 export default function ProfilePage() {
     const { user, isLoading: authLoading } = useAuth()
@@ -20,10 +22,42 @@ export default function ProfilePage() {
     const [isLoading, setIsLoading] = useState(false)
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
+    // AI Settings state
+    const [defaultProvider, setDefaultProvider] = useState<LlmProvider>("groq")
+    const [defaultModel, setDefaultModel] = useState<string>(getDefaultModel("groq"))
+    const [treeGenMode, setTreeGenMode] = useState<string>("on_upload")
+    const [defaultRetrievalMode, setDefaultRetrievalMode] = useState<RetrievalMode>("vector")
+    const [aiSettingsSaved, setAiSettingsSaved] = useState(false)
+
     useEffect(() => {
         if (user) {
             setName(user.name)
             setEmail(user.email)
+        }
+
+        // Load AI settings from localStorage
+        if (typeof window !== "undefined") {
+            const validProviders: LlmProvider[] = ["groq", "cerebras", "bytez"]
+            const savedProvider = localStorage.getItem("settings-default-provider") || localStorage.getItem("chat-provider-default")
+            if (savedProvider && validProviders.includes(savedProvider as LlmProvider)) {
+                setDefaultProvider(savedProvider as LlmProvider)
+                const savedModel = localStorage.getItem("settings-default-model") || localStorage.getItem("chat-model-default")
+                if (savedModel && isValidModel(savedProvider, savedModel)) {
+                    setDefaultModel(savedModel)
+                } else {
+                    setDefaultModel(getDefaultModel(savedProvider))
+                }
+            }
+
+            const savedTreeMode = localStorage.getItem("settings-tree-gen-mode")
+            if (savedTreeMode === "on_upload" || savedTreeMode === "manual") {
+                setTreeGenMode(savedTreeMode)
+            }
+
+            const savedRetrieval = localStorage.getItem("settings-retrieval-mode") || localStorage.getItem("chat-retrieval-mode")
+            if (savedRetrieval === "vector" || savedRetrieval === "pageindex" || savedRetrieval === "comparison") {
+                setDefaultRetrievalMode(savedRetrieval as RetrievalMode)
+            }
         }
     }, [user])
 
@@ -198,6 +232,122 @@ export default function ProfilePage() {
                             </Button>
                         </div>
                     </form>
+                </CardContent>
+            </Card>
+
+            {/* AI Settings Card */}
+            <Card className="mt-8 bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none overflow-hidden">
+                <CardHeader className="bg-zinc-50/50 dark:bg-white/[0.02] border-b border-zinc-200 dark:border-white/5 pb-6">
+                    <CardTitle className="text-xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                        <Bot className="w-5 h-5 text-lime-600 dark:text-lime-accent" />
+                        AI Settings
+                    </CardTitle>
+                    <CardDescription className="text-zinc-500 dark:text-gray-400">Configure your default AI provider, model, and retrieval preferences.</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-6">
+                    {aiSettingsSaved && (
+                        <Alert className="mb-4 border-0 rounded-xl bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-500">
+                            <AlertDescription className="font-medium text-sm flex items-center gap-2">
+                                <CheckCircle className="w-4 h-4" />
+                                AI settings saved successfully
+                            </AlertDescription>
+                        </Alert>
+                    )}
+
+                    <div className="grid gap-5 p-5 sm:p-6 border border-zinc-200 dark:border-white/5 rounded-2xl bg-zinc-50/50 dark:bg-white/[0.02]">
+                        <div className="space-y-2">
+                            <Label className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Default Provider</Label>
+                            <Select value={defaultProvider} onValueChange={(value) => {
+                                const p = value as LlmProvider
+                                setDefaultProvider(p)
+                                setDefaultModel(getDefaultModel(p))
+                            }}>
+                                <SelectTrigger className="w-full bg-white dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl h-11 focus:ring-1 focus:ring-lime-accent text-zinc-900 dark:text-white font-medium">
+                                    <SelectValue placeholder="Select provider" />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
+                                    {Object.entries(PROVIDER_LABELS).map(([key, label]) => (
+                                        <SelectItem key={key} value={key} className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">{label}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Default Model</Label>
+                            <Select value={defaultModel} onValueChange={setDefaultModel}>
+                                <SelectTrigger className="w-full bg-white dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl h-11 focus:ring-1 focus:ring-lime-accent text-zinc-900 dark:text-white font-medium">
+                                    <SelectValue placeholder="Select model" />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
+                                    {(PROVIDER_MODELS[defaultProvider] || []).map((m) => (
+                                        <SelectItem key={m.id} value={m.id} className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">
+                                            <span className="flex items-center gap-2">
+                                                {m.name}
+                                                <span className="text-[10px] text-zinc-400">{m.context}</span>
+                                            </span>
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Tree Generation Mode</Label>
+                            <Select value={treeGenMode} onValueChange={setTreeGenMode}>
+                                <SelectTrigger className="w-full bg-white dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl h-11 focus:ring-1 focus:ring-lime-accent text-zinc-900 dark:text-white font-medium">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
+                                    <SelectItem value="on_upload" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">On Upload</SelectItem>
+                                    <SelectItem value="manual" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Manual Trigger</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-zinc-500 font-medium">
+                                {treeGenMode === "on_upload"
+                                    ? "PageIndex tree will be generated automatically when a PDF is uploaded"
+                                    : "You can manually trigger tree generation for each PDF"}
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label className="text-sm font-semibold text-zinc-900 dark:text-gray-300">Default Retrieval Mode</Label>
+                            <Select value={defaultRetrievalMode} onValueChange={(v) => setDefaultRetrievalMode(v as RetrievalMode)}>
+                                <SelectTrigger className="w-full bg-white dark:bg-[#111] border-zinc-200 dark:border-white/10 rounded-xl h-11 focus:ring-1 focus:ring-lime-accent text-zinc-900 dark:text-white font-medium">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="rounded-xl border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111]">
+                                    <SelectItem value="vector" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Vector Search</SelectItem>
+                                    <SelectItem value="pageindex" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">PageIndex</SelectItem>
+                                    <SelectItem value="comparison" className="focus:bg-zinc-100 dark:focus:bg-white/10 cursor-pointer">Comparison</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                        <Button
+                            type="button"
+                            onClick={() => {
+                                if (typeof window !== "undefined") {
+                                    localStorage.setItem("settings-default-provider", defaultProvider)
+                                    localStorage.setItem("settings-default-model", defaultModel)
+                                    localStorage.setItem("settings-tree-gen-mode", treeGenMode)
+                                    localStorage.setItem("settings-retrieval-mode", defaultRetrievalMode)
+                                    // Also update the chat defaults so they apply immediately
+                                    localStorage.setItem("chat-provider-default", defaultProvider)
+                                    localStorage.setItem("chat-model-default", defaultModel)
+                                    localStorage.setItem("chat-retrieval-mode", defaultRetrievalMode)
+                                }
+                                setAiSettingsSaved(true)
+                                setTimeout(() => setAiSettingsSaved(false), 3000)
+                            }}
+                            className="bg-lime-accent text-black rounded-full font-bold shadow-[0_4px_14px_0_rgba(163,230,53,0.39)] hover:scale-[1.02] active:scale-95 transition-all h-12 px-8 min-w-[160px]"
+                        >
+                            <Settings className="mr-2 h-5 w-5" />
+                            Save AI Settings
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
         </div>

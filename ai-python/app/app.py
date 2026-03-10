@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from .pdf_processor import DocumentProcessor
 from .ai_generator import AIGenerator
 from .database import test_connection
+from .pageindex_service import PageIndexService
 
 
 # Load environment variables
@@ -48,6 +49,14 @@ try:
     pdf_processor = DocumentProcessor()
     ai_generator = AIGenerator()
     
+    # Initialize PageIndex service with reference to ai_generator for LLM calls
+    try:
+        pageindex_service = PageIndexService(ai_generator=ai_generator)
+        logger.info("PageIndex service initialized")
+    except Exception as pi_err:
+        pageindex_service = None
+        logger.warning(f"PageIndex service not available: {pi_err}")
+    
     logger.info("All services initialized successfully")
     services_available = True
     
@@ -56,6 +65,7 @@ except Exception as e:
     # Set to None if initialization fails
     pdf_processor = None
     ai_generator = None
+    pageindex_service = None
     services_available = False
 
 @app.route('/', methods=['GET'])
@@ -149,6 +159,8 @@ def chat():
         session_id = data.get('session_id')
         conversation_history = data.get('conversation_history', [])
         provider = data.get('provider')
+        model = data.get('model')
+        retrieval_mode = data.get('retrieval_mode', 'vector')
         
         if not all([question, pdf_ids, user_id]):
             return jsonify({
@@ -156,11 +168,29 @@ def chat():
                 'message': 'Missing required fields: question, pdf_ids, user_id'
             }), 400
         
-        logger.info(f"Chat request - User: {user_id}, Session: {session_id}")
+        logger.info(f"Chat request - User: {user_id}, Session: {session_id}, Mode: {retrieval_mode}")
         logger.info(f"Conversation history length: {len(conversation_history)}")
         
-        # Generate AI response with conversation context
-        result = ai_generator.generate_answer(question, pdf_ids, user_id, session_id, conversation_history, provider)
+        # Handle retrieval modes
+        if retrieval_mode == 'pageindex' and pageindex_service:
+            # PageIndex-only mode
+            result = _handle_pageindex_chat(question, pdf_ids, user_id, provider, model)
+        elif retrieval_mode == 'comparison' and pageindex_service:
+            # Comparison mode: both Vector + PageIndex
+            vector_result = ai_generator.generate_answer(question, pdf_ids, user_id, session_id, conversation_history, provider, model=model)
+            pageindex_result = _handle_pageindex_chat(question, pdf_ids, user_id, provider, model)
+            
+            combined_answer = vector_result.get('answer', '') + "\n\n|||COMPARISON_SPLIT|||\n\n" + pageindex_result.get('answer', '')
+            combined_refs = vector_result.get('references', []) + pageindex_result.get('references', [])
+            
+            result = {
+                'answer': combined_answer,
+                'references': combined_refs,
+                'provider': vector_result.get('provider', provider)
+            }
+        else:
+            # Default: Vector mode
+            result = ai_generator.generate_answer(question, pdf_ids, user_id, session_id, conversation_history, provider, model=model)
         
         return jsonify({
             'status': 'success',
@@ -200,6 +230,8 @@ def chat_stream():
         session_id = data.get('session_id')
         conversation_history = data.get('conversation_history', [])
         provider = data.get('provider')
+        model = data.get('model')
+        retrieval_mode = data.get('retrieval_mode', 'vector')
         
         if not all([question, pdf_ids, user_id]):
             return jsonify({
@@ -207,14 +239,42 @@ def chat_stream():
                 'message': 'Missing required fields: question, pdf_ids, user_id'
             }), 400
         
-        logger.info(f"Chat stream request - User: {user_id}, Session: {session_id}")
+        logger.info(f"Chat stream request - User: {user_id}, Session: {session_id}, Mode: {retrieval_mode}")
         
         def generate():
             try:
-                for chunk in ai_generator.generate_answer_stream(
-                    question, pdf_ids, user_id, session_id, conversation_history, provider
-                ):
-                    yield f"data: {json.dumps(chunk)}\n\n"
+                if retrieval_mode == 'pageindex' and pageindex_service:
+                    # Stream from PageIndex
+                    for chunk in _handle_pageindex_stream(question, pdf_ids, user_id, provider, model):
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                elif retrieval_mode == 'comparison' and pageindex_service:
+                    # Stream Vector
+                    vector_refs = []
+                    for chunk in ai_generator.generate_answer_stream(question, pdf_ids, user_id, session_id, conversation_history, provider, model=model):
+                        if chunk.get('type') == 'metadata':
+                            vector_refs = chunk.get('references', [])
+                        else:
+                            yield f"data: {json.dumps(chunk)}\n\n"
+                    
+                    # Split separator
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': '\n\n|||COMPARISON_SPLIT|||\n\n'})}\n\n"
+                    
+                    # Stream PageIndex
+                    pageindex_refs = []
+                    for chunk in _handle_pageindex_stream(question, pdf_ids, user_id, provider, model):
+                        if chunk.get('type') == 'metadata':
+                            pageindex_refs = chunk.get('references', [])
+                        else:
+                            yield f"data: {json.dumps(chunk)}\n\n"
+                            
+                    # Yield combined metadata at the end
+                    yield f"data: {json.dumps({'type': 'metadata', 'references': vector_refs + pageindex_refs})}\n\n"
+                else:
+                    # Default: Vector stream
+                    for chunk in ai_generator.generate_answer_stream(
+                        question, pdf_ids, user_id, session_id, conversation_history, provider, model=model
+                    ):
+                        yield f"data: {json.dumps(chunk)}\n\n"
             except Exception as e:
                 logger.error(f"Stream generation error: {str(e)}")
                 yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
@@ -289,3 +349,142 @@ def internal_error(error):
     }), 500
 
 # Remove the if __name__ block since we're using run.py
+
+# ─── PageIndex Helper Functions ───────────────────────────────────────
+
+def _get_tree_for_pdf(pdf_id):
+    """Load tree from Appwrite for a given PDF."""
+    if not pageindex_service:
+        return None
+
+    try:
+        from .database import get_db_connection
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT tree_file_id, tree_status FROM pdfs WHERE pdf_id = %s", (pdf_id,))
+            row = cur.fetchone()
+        conn.close()
+
+        if not row or row[1] != 'completed' or not row[0]:
+            return None
+
+        return pageindex_service.download_tree_from_appwrite(row[0])
+
+    except Exception as e:
+        logger.warning(f"Failed to load tree for PDF {pdf_id}: {e}")
+        return None
+
+def _handle_pageindex_chat(question, pdf_ids, user_id, provider, model):
+    """Handle a chat request using PageIndex retrieval."""
+    # Try first PDF that has a tree
+    for pdf_id in pdf_ids:
+        tree = _get_tree_for_pdf(pdf_id)
+        if tree:
+            # Get PDF name
+            try:
+                from .database import get_db_connection
+                conn = get_db_connection()
+                with conn.cursor() as cur:
+                    cur.execute("SELECT file_name FROM pdfs WHERE pdf_id = %s", (pdf_id,))
+                    row = cur.fetchone()
+                conn.close()
+                pdf_name = row[0] if row else 'Unknown'
+            except Exception:
+                pdf_name = 'Unknown'
+
+            return pageindex_service.generate_answer_from_tree(
+                question, tree, pdf_id, pdf_name, provider, model
+            )
+
+    # No trees available — fall back to vector
+    return ai_generator.generate_answer(question, pdf_ids, user_id, provider=provider, model=model)
+
+def _handle_pageindex_stream(question, pdf_ids, user_id, provider, model):
+    """Handle streaming chat using PageIndex retrieval."""
+    for pdf_id in pdf_ids:
+        tree = _get_tree_for_pdf(pdf_id)
+        if tree:
+            try:
+                from .database import get_db_connection
+                conn = get_db_connection()
+                with conn.cursor() as cur:
+                    cur.execute("SELECT file_name FROM pdfs WHERE pdf_id = %s", (pdf_id,))
+                    row = cur.fetchone()
+                conn.close()
+                pdf_name = row[0] if row else 'Unknown'
+            except Exception:
+                pdf_name = 'Unknown'
+
+            yield from pageindex_service.generate_answer_stream_from_tree(
+                question, tree, pdf_id, pdf_name, provider, model
+            )
+            return
+
+    # Fallback to vector stream
+    yield from ai_generator.generate_answer_stream(
+        question, pdf_ids, user_id, provider=provider, model=model
+    )
+
+@app.route('/generate-tree', methods=['POST'])
+def generate_tree():
+    """Manual tree generation endpoint."""
+    try:
+        if not pageindex_service or not services_available:
+            return jsonify({'status': 'error', 'message': 'PageIndex service not available'}), 503
+
+        data = request.get_json()
+        pdf_id = data.get('pdf_id')
+        user_id = data.get('user_id')
+        provider = data.get('provider', 'groq')
+        model = data.get('model')
+
+        if not pdf_id or not user_id:
+            return jsonify({'status': 'error', 'message': 'pdf_id and user_id required'}), 400
+
+        # Download PDF text from DB
+        from .database import get_db_connection
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT page_number, chunk_text FROM pdf_chunks WHERE pdf_id = %s ORDER BY page_number",
+                (pdf_id,)
+            )
+            rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return jsonify({'status': 'error', 'message': 'No chunks found for this PDF'}), 404
+
+        # Reconstruct pages_data from chunks
+        page_texts = {}
+        for row in rows:
+            page_num = row[0]
+            if page_num not in page_texts:
+                page_texts[page_num] = []
+            page_texts[page_num].append(row[1])
+
+        pages_data = [
+            {'page_number': pn, 'text': ' '.join(texts)}
+            for pn, texts in sorted(page_texts.items())
+        ]
+
+        result = pageindex_service.generate_tree_from_pages(
+            pages_data, pdf_id, provider=provider, model=model
+        )
+
+        # Update DB with tree info
+        if result.get('status') == 'success':
+            conn = get_db_connection()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pdfs SET tree_file_id = %s, tree_status = 'completed' WHERE pdf_id = %s",
+                    (result.get('tree_file_id'), pdf_id)
+                )
+            conn.commit()
+            conn.close()
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Generate tree endpoint error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500

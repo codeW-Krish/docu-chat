@@ -75,3 +75,5 @@ docx2txt
 pandas
 python-pptx
 appwrite==5.0.1
+openai>=1.30.0
+pageindex

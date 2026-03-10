@@ -170,7 +170,10 @@ export function PdfViewer({ pdf, highlightedReference, onPageChange }: PdfViewer
       const itemText = textItem.str.toLowerCase();
 
       if (chunkText.includes(itemText) && itemText.length > 3) {
-        return `<span class="bg-yellow-200/50 text-black mix-blend-multiply">${textItem.str}</span>`;
+        const bgClass = highlightedReference.source === 'pageindex'
+          ? 'bg-lime-300/60 dark:bg-lime-500/40 text-black dark:text-white mix-blend-multiply dark:mix-blend-screen'
+          : 'bg-yellow-200/60 dark:bg-yellow-500/40 text-black dark:text-white mix-blend-multiply dark:mix-blend-screen';
+        return `<span class="${bgClass}">${textItem.str}</span>`;
       }
 
       return textItem.str;
