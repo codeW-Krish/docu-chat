@@ -257,7 +257,8 @@ def chat_stream():
                             yield f"data: {json.dumps(chunk)}\n\n"
                     
                     # Split separator
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': '\n\n|||COMPARISON_SPLIT|||\n\n'})}\n\n"
+                    split_chunk = {'type': 'chunk', 'content': '\n\n|||COMPARISON_SPLIT|||\n\n'}
+                    yield f"data: {json.dumps(split_chunk)}\n\n"
                     
                     # Stream PageIndex
                     pageindex_refs = []
@@ -268,7 +269,8 @@ def chat_stream():
                             yield f"data: {json.dumps(chunk)}\n\n"
                             
                     # Yield combined metadata at the end
-                    yield f"data: {json.dumps({'type': 'metadata', 'references': vector_refs + pageindex_refs})}\n\n"
+                    meta_chunk = {'type': 'metadata', 'references': vector_refs + pageindex_refs}
+                    yield f"data: {json.dumps(meta_chunk)}\n\n"
                 else:
                     # Default: Vector stream
                     for chunk in ai_generator.generate_answer_stream(
@@ -276,8 +278,9 @@ def chat_stream():
                     ):
                         yield f"data: {json.dumps(chunk)}\n\n"
             except Exception as e:
-                logger.error(f"Stream generation error: {str(e)}")
-                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                logger.error(f"Error in chat stream: {str(e)}", exc_info=True)
+                err_chunk = {'type': 'error', 'content': str(e)}
+                yield f"data: {json.dumps(err_chunk)}\n\n"
         
         return Response(generate(), mimetype='text/event-stream', headers={'X-Accel-Buffering': 'no'})
         

@@ -77,6 +77,99 @@ interface ChatSession {
   created_at: string;
   pdfs?: PdfFile[];
 }
+const baseMarkdownComponents: any = {
+  p({ children }: any) {
+    return <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
+  },
+  ul({ children }: any) {
+    return <ul className="list-disc pl-5 mb-4 space-y-1.5 marker:text-zinc-400 dark:marker:text-zinc-600">{children}</ul>
+  },
+  ol({ children }: any) {
+    return <ol className="list-decimal pl-5 mb-4 space-y-1.5 marker:text-zinc-400 dark:marker:text-zinc-600 marker:font-semibold">{children}</ol>
+  },
+  li({ children }: any) {
+    return <li className="pl-1 leading-relaxed">{children}</li>
+  },
+  h1({ children }: any) {
+    return <h1 className="text-xl md:text-2xl font-bold mb-4 mt-6 first:mt-0 tracking-tight text-zinc-900 dark:text-white">{children}</h1>
+  },
+  h2({ children }: any) {
+    return <h2 className="text-lg md:text-xl font-bold mb-3 mt-5 first:mt-0 tracking-tight text-zinc-900 dark:text-white">{children}</h2>
+  },
+  h3({ children }: any) {
+    return <h3 className="text-base md:text-lg font-bold mb-2 mt-4 first:mt-0 text-zinc-900 dark:text-white">{children}</h3>
+  },
+  blockquote({ children }: any) {
+    return <blockquote className="border-l-4 border-lime-300 dark:border-lime-700 bg-lime-50/50 dark:bg-lime-900/10 rounded-r-xl px-4 py-3 my-4 italic text-zinc-600 dark:text-gray-400">{children}</blockquote>
+  },
+  a({ href, children }: any) {
+    return <a href={href} target="_blank" rel="noopener noreferrer" className="text-lime-600 dark:text-lime-accent hover:text-lime-700 dark:hover:text-lime-400 hover:underline underline-offset-4 font-semibold transition-colors">{children}</a>
+  },
+  table({ children }: any) {
+    return <div className="overflow-x-auto my-5 rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111] shadow-sm"><table className="w-full text-sm text-left">{children}</table></div>
+  },
+  thead({ children }: any) {
+    return <thead className="bg-zinc-50 dark:bg-white/5 text-xs uppercase text-zinc-500 dark:text-gray-400 font-bold border-b border-zinc-200 dark:border-white/10">{children}</thead>
+  },
+  tbody({ children }: any) {
+    return <tbody className="divide-y divide-zinc-100 dark:divide-white/5">{children}</tbody>
+  },
+  tr({ children }: any) {
+    return <tr className="hover:bg-zinc-50/50 dark:hover:bg-white/[0.02] transition-colors">{children}</tr>
+  },
+  th({ children }: any) {
+    return <th className="px-4 py-3 align-top">{children}</th>
+  },
+  td({ children }: any) {
+    return <td className="px-4 py-3 align-top">{children}</td>
+  }
+};
+
+const aiMarkdownComponents = {
+  ...baseMarkdownComponents,
+  code({ node, inline, className, children, ...props }: any) {
+    const match = /language-(\w+)/.exec(className || '')
+    return !inline && match ? (
+      <div className="relative rounded-xl overflow-hidden my-4 border border-zinc-200 dark:border-white/10 bg-zinc-900 dark:bg-[#111] shadow-sm">
+        <div className="bg-zinc-800/50 dark:bg-white/5 px-4 py-2 text-xs text-zinc-400 dark:text-gray-500 border-b border-zinc-800 dark:border-white/5 flex items-center justify-between font-mono font-medium">
+          <span>{match[1]}</span>
+        </div>
+        <div className="p-4 overflow-x-auto custom-scrollbar w-full relative max-w-[calc(100vw-4rem)] md:max-w-none box-border">
+          <code className={className} {...props}>
+            {children}
+          </code>
+        </div>
+      </div>
+    ) : (
+      <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 break-words whitespace-pre-wrap`} {...props}>
+        {children}
+      </code>
+    )
+  }
+};
+
+const userMarkdownComponents = {
+  ...baseMarkdownComponents,
+  code({ node, inline, className, children, ...props }: any) {
+    const match = /language-(\w+)/.exec(className || '')
+    return !inline && match ? (
+      <div className="relative rounded-xl overflow-hidden my-4 border border-zinc-200 dark:border-white/10 bg-zinc-900 dark:bg-[#111] shadow-sm">
+        <div className="bg-zinc-800/50 dark:bg-white/5 px-4 py-2 text-xs text-zinc-400 dark:text-gray-500 border-b border-zinc-800 dark:border-white/5 flex items-center justify-between font-mono font-medium">
+          <span>{match[1]}</span>
+        </div>
+        <div className="p-4 overflow-x-auto custom-scrollbar w-full relative max-w-[calc(100vw-4rem)] md:max-w-none box-border">
+          <code className={className} {...props}>
+            {children}
+          </code>
+        </div>
+      </div>
+    ) : (
+      <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 break-words whitespace-pre-wrap bg-white/20 dark:bg-black/10 text-white dark:text-black`} {...props}>
+        {children}
+      </code>
+    )
+  }
+};
 
 export default function ChatSessionPage() {
   const { sessionId } = useParams() as { sessionId: string };
@@ -461,73 +554,6 @@ export default function ChatSessionPage() {
     }
   };
 
-  const markdownComponents: any = {
-    code({ node, inline, className, children, ...props }: any) {
-      const match = /language-(\w+)/.exec(className || '')
-      return !inline && match ? (
-        <div className="relative rounded-xl overflow-hidden my-4 border border-zinc-200 dark:border-white/10 bg-zinc-900 dark:bg-[#111] shadow-sm">
-          <div className="bg-zinc-800/50 dark:bg-white/5 px-4 py-2 text-xs text-zinc-400 dark:text-gray-500 border-b border-zinc-800 dark:border-white/5 flex items-center justify-between font-mono font-medium">
-            <span>{match[1]}</span>
-          </div>
-          <div className="p-4 overflow-x-auto custom-scrollbar w-full relative max-w-[calc(100vw-4rem)] md:max-w-none box-border">
-            <code className={className} {...props}>
-              {children}
-            </code>
-          </div>
-        </div>
-      ) : (
-        <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 break-words whitespace-pre-wrap`} {...props}>
-          {children}
-        </code>
-      )
-    },
-    p({ children }: any) {
-      return <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
-    },
-    ul({ children }: any) {
-      return <ul className="list-disc pl-5 mb-4 space-y-1.5 marker:text-zinc-400 dark:marker:text-zinc-600">{children}</ul>
-    },
-    ol({ children }: any) {
-      return <ol className="list-decimal pl-5 mb-4 space-y-1.5 marker:text-zinc-400 dark:marker:text-zinc-600 marker:font-semibold">{children}</ol>
-    },
-    li({ children }: any) {
-      return <li className="pl-1 leading-relaxed">{children}</li>
-    },
-    h1({ children }: any) {
-      return <h1 className="text-xl md:text-2xl font-bold mb-4 mt-6 first:mt-0 tracking-tight text-zinc-900 dark:text-white">{children}</h1>
-    },
-    h2({ children }: any) {
-      return <h2 className="text-lg md:text-xl font-bold mb-3 mt-5 first:mt-0 tracking-tight text-zinc-900 dark:text-white">{children}</h2>
-    },
-    h3({ children }: any) {
-      return <h3 className="text-base md:text-lg font-bold mb-2 mt-4 first:mt-0 text-zinc-900 dark:text-white">{children}</h3>
-    },
-    blockquote({ children }: any) {
-      return <blockquote className="border-l-4 border-lime-300 dark:border-lime-700 bg-lime-50/50 dark:bg-lime-900/10 rounded-r-xl px-4 py-3 my-4 italic text-zinc-600 dark:text-gray-400">{children}</blockquote>
-    },
-    a({ href, children }: any) {
-      return <a href={href} target="_blank" rel="noopener noreferrer" className="text-lime-600 dark:text-lime-accent hover:text-lime-700 dark:hover:text-lime-400 hover:underline underline-offset-4 font-semibold transition-colors">{children}</a>
-    },
-    table({ children }: any) {
-      return <div className="overflow-x-auto my-5 rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#111] shadow-sm"><table className="w-full text-sm text-left">{children}</table></div>
-    },
-    thead({ children }: any) {
-      return <thead className="bg-zinc-50 dark:bg-white/5 text-xs uppercase text-zinc-500 dark:text-gray-400 font-bold border-b border-zinc-200 dark:border-white/10">{children}</thead>
-    },
-    tbody({ children }: any) {
-      return <tbody className="divide-y divide-zinc-100 dark:divide-white/5">{children}</tbody>
-    },
-    tr({ children }: any) {
-      return <tr className="hover:bg-zinc-50/50 dark:hover:bg-white/[0.02] transition-colors">{children}</tr>
-    },
-    th({ children }: any) {
-      return <th className="px-4 py-3 align-top">{children}</th>
-    },
-    td({ children }: any) {
-      return <td className="px-4 py-3 align-top">{children}</td>
-    }
-  };
-
   const renderMessage = (message: ChatMessage) => {
     const isUser = message.sender === 'user';
     const references = message.references as PdfReference[] || [];
@@ -572,7 +598,7 @@ export default function ChatSessionPage() {
                       <h3 className="font-bold text-sm text-yellow-800 dark:text-yellow-500 uppercase tracking-wider">Vector RAG</h3>
                     </div>
                     <div className="prose prose-sm dark:prose-invert max-w-full w-full break-words [overflow-wrap:break-word] overflow-x-auto leading-relaxed font-medium prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={aiMarkdownComponents}>
                         {vectorText}
                       </ReactMarkdown>
                     </div>
@@ -587,7 +613,7 @@ export default function ChatSessionPage() {
                       <h3 className="font-bold text-sm text-lime-800 dark:text-lime-accent uppercase tracking-wider">PageIndex</h3>
                     </div>
                     <div className="prose prose-sm dark:prose-invert max-w-full w-full break-words [overflow-wrap:break-word] overflow-x-auto leading-relaxed font-medium prose-p:text-zinc-700 dark:prose-p:text-gray-300 text-zinc-900 dark:text-white">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={aiMarkdownComponents}>
                         {pageIndexText}
                       </ReactMarkdown>
                     </div>
@@ -606,28 +632,7 @@ export default function ChatSessionPage() {
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       rehypePlugins={[rehypeHighlight]}
-                      components={{
-                        ...markdownComponents,
-                        code({ node, inline, className, children, ...props }: any) {
-                          const match = /language-(\w+)/.exec(className || '')
-                          return !inline && match ? (
-                            <div className="relative rounded-xl overflow-hidden my-4 border border-zinc-200 dark:border-white/10 bg-zinc-900 dark:bg-[#111] shadow-sm">
-                              <div className="bg-zinc-800/50 dark:bg-white/5 px-4 py-2 text-xs text-zinc-400 dark:text-gray-500 border-b border-zinc-800 dark:border-white/5 flex items-center justify-between font-mono font-medium">
-                                <span>{match[1]}</span>
-                              </div>
-                              <div className="p-4 overflow-x-auto custom-scrollbar w-full relative max-w-[calc(100vw-4rem)] md:max-w-none box-border">
-                                <code className={className} {...props}>
-                                  {children}
-                                </code>
-                              </div>
-                            </div>
-                          ) : (
-                            <code className={`${className} bg-zinc-100 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-xs font-mono font-bold text-zinc-800 dark:text-zinc-200 break-words whitespace-pre-wrap ${isUser ? 'bg-white/20 dark:bg-black/10 text-white dark:text-black' : ''}`} {...props}>
-                              {children}
-                            </code>
-                          )
-                        }
-                      }}
+                      components={isUser ? userMarkdownComponents : aiMarkdownComponents}
                     >
                       {message.message_text}
                     </ReactMarkdown>
