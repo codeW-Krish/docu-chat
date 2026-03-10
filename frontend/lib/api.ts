@@ -19,6 +19,7 @@ export interface PdfFile {
   uploaded_at: string;
   processing_status: 'pending' | 'processing' | 'completed' | 'failed';
   processing_progress?: number;
+  tree_status?: 'pending' | 'generating' | 'completed' | 'failed';
 }
 
 export interface ChatSession {
@@ -642,6 +643,13 @@ class ApiClient {
     return this.request<ApiResponse<{ summary: string }>>('/api/chat/summary', {
       method: 'POST',
       body: JSON.stringify({ session_id: sessionId, provider, model }),
+    });
+  }
+
+  async generateTree(pdfId: string, provider?: LlmProvider, model?: string): Promise<ApiResponse<{ tree_file_id: string; tree_status: string }>> {
+    return this.request<ApiResponse<{ tree_file_id: string; tree_status: string }>>('/api/pdfs/generate-tree', {
+      method: 'POST',
+      body: JSON.stringify({ pdf_id: pdfId, provider, model }),
     });
   }
 

@@ -534,6 +534,81 @@ class PdfController extends BaseController
         }
     }
 
+    public function generateTree()
+    {
+        try {
+            $data = $this->request->getJSON(true);
+            $userId = $this->request->user->user_id;
+            $pdfId = $data['pdf_id'] ?? null;
+            $provider = $data['provider'] ?? null;
+            $model = $data['model'] ?? null;
+
+            if (!$pdfId) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'pdf_id required'
+                ])->setStatusCode(400);
+            }
+
+            // Verify PDF belongs to user
+            $pdf = $this->pdfModel->getPdfById($pdfId, $userId);
+            if (!$pdf) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'PDF not found or access denied'
+                ])->setStatusCode(404);
+            }
+
+            // Call Python service to generate tree
+            $pythonServerUrl = getenv('PYTHON_SERVER_URL') ?: 'http://localhost:5000';
+
+            $postData = json_encode([
+                'pdf_id' => $pdfId,
+                'user_id' => $userId,
+                'provider' => $provider,
+                'model' => $model
+            ]);
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $pythonServerUrl . '/generate-tree',
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $postData,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 300,
+                CURLOPT_CONNECTTIMEOUT => 30,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json']
+            ]);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            if ($httpCode !== 200) {
+                log_message('error', 'Generate tree Python error: ' . $error . ' Response: ' . $response);
+                throw new \Exception('AI server error during tree generation');
+            }
+
+            $result = json_decode($response, true);
+
+            return $this->response->setJSON([
+                'status' => $result['status'] ?? 'success',
+                'data' => [
+                    'tree_file_id' => $result['tree_file_id'] ?? null,
+                    'tree_status' => $result['status'] === 'success' ? 'completed' : 'failed'
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            log_message('error', 'Generate tree error: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Failed to generate tree: ' . $e->getMessage()
+            ])->setStatusCode(500);
+        }
+    }
+
     public function viewPdf($pdfId)
     {
         try {

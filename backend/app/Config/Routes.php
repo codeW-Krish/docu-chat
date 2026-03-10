@@ -54,6 +54,7 @@ $routes->group('api', ['filter' => ['cors', 'jwtauth']], static function($routes
     $routes->get('pdfs/(:segment)/view', [PdfController::class, 'viewPdf/$1']);
     $routes->get('pdfs/(:segment)/chunks', [PdfController::class, 'getPdfChunks/$1']);
     $routes->delete('pdfs/(:segment)', [PdfController::class, 'deletePdf/$1']);
+    $routes->post('pdfs/generate-tree', [PdfController::class, 'generateTree']);
 
     // Chat routes
     $routes->get('chat/sessions', [ChatController::class, 'getSessions']);

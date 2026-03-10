@@ -23,7 +23,7 @@ class AIGenerator:
             self.client = groq.Client(api_key=os.getenv('GROQ_API_KEY'))
             self.default_provider = (os.getenv('LLM_PROVIDER') or 'groq').lower()
             self.groq_model = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
-            self.cerebras_model = os.getenv('CEREBRAS_MODEL', 'llama3.1-70b')
+            self.cerebras_model = os.getenv('CEREBRAS_MODEL', 'gpt-oss-120b')
             self.bytez_model = os.getenv('BYTEZ_MODEL', 'gpt-4o-mini')
 
             self.cerebras_client = None

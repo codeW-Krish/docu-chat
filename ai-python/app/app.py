@@ -476,15 +476,20 @@ def generate_tree():
         )
 
         # Update DB with tree info
-        if result.get('status') == 'success':
-            conn = get_db_connection()
-            with conn.cursor() as cur:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            if result.get('status') == 'success':
                 cur.execute(
                     "UPDATE pdfs SET tree_file_id = %s, tree_status = 'completed' WHERE pdf_id = %s",
                     (result.get('tree_file_id'), pdf_id)
                 )
-            conn.commit()
-            conn.close()
+            else:
+                cur.execute(
+                    "UPDATE pdfs SET tree_status = 'failed' WHERE pdf_id = %s",
+                    (pdf_id,)
+                )
+        conn.commit()
+        conn.close()
 
         return jsonify(result)
 

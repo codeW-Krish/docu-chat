@@ -19,9 +19,8 @@ export const PROVIDER_MODELS: Record<string, ModelInfo[]> = {
         { id: 'gemma2-9b-it', name: 'Gemma 2 9B', context: '8K' },
     ],
     cerebras: [
-        { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', context: '128K' },
-        { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', context: '128K' },
-        { id: 'llama-3.1-70b', name: 'Llama 3.1 70B', context: '128K' },
+        { id: 'gpt-oss-120b', name: 'GPT-OSS 120B', context: '65K' },
+        { id: 'llama3.1-8b', name: 'Llama 3.1 8B', context: '8K' },
     ],
     bytez: [
         { id: 'gpt-4o-mini', name: 'GPT-4o Mini', context: '128K' },

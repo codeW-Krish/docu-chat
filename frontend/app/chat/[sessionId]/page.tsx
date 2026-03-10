@@ -46,7 +46,9 @@ import {
   CheckSquare,
   Square,
   Download,
-  Layout
+  Layout,
+  TreePine,
+  CheckCircle2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import dynamic from "next/dynamic";
@@ -197,6 +199,9 @@ export default function ChatSessionPage() {
   const [provider, setProvider] = useState<LlmProvider>("groq");
   const [model, setModel] = useState<string>(getDefaultModel("groq"));
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("vector");
+
+  // Tree generation state
+  const [generatingTreePdfId, setGeneratingTreePdfId] = useState<string | null>(null);
 
   // Voice Mode State
   const [isListening, setIsListening] = useState(false);
@@ -554,6 +559,32 @@ export default function ChatSessionPage() {
     }
   };
 
+  const handleGenerateTree = async (pdfId: string) => {
+    setGeneratingTreePdfId(pdfId);
+    try {
+      const result = await api.generateTree(pdfId, provider, model);
+      if (result.status === 'success') {
+        toast({
+          title: "Tree Generated",
+          description: "PageIndex tree has been generated successfully.",
+        });
+        // Refresh PDFs to update tree_status
+        await loadSessionData();
+      } else {
+        throw new Error('Tree generation failed');
+      }
+    } catch (error) {
+      console.error("Failed to generate tree:", error);
+      toast({
+        title: "Error",
+        description: "Failed to generate tree. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingTreePdfId(null);
+    }
+  };
+
   const renderMessage = (message: ChatMessage) => {
     const isUser = message.sender === 'user';
     const references = message.references as PdfReference[] || [];
@@ -817,9 +848,35 @@ export default function ChatSessionPage() {
                       <p className={`text-sm font-medium truncate transition-colors ${isActive ? 'text-zinc-900 dark:text-white' : 'text-zinc-500 dark:text-gray-400 group-hover:text-zinc-900 dark:group-hover:text-white'}`}>
                         {pdf.file_name}
                       </p>
-                      <p className="text-xs text-zinc-400 dark:text-gray-500 mt-0.5 font-medium">
-                        {pdf.page_count || "?"} pages
-                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-xs text-zinc-400 dark:text-gray-500 font-medium">
+                          {pdf.page_count || "?"} pages
+                        </p>
+                        {pdf.tree_status === 'completed' ? (
+                          <span className="flex items-center gap-0.5 text-[10px] text-lime-600 dark:text-lime-accent font-medium">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Tree
+                          </span>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={generatingTreePdfId === pdf.pdf_id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleGenerateTree(pdf.pdf_id);
+                            }}
+                            className="h-5 px-1.5 text-[10px] font-medium text-zinc-400 hover:text-lime-600 dark:hover:text-lime-accent gap-0.5"
+                          >
+                            {generatingTreePdfId === pdf.pdf_id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <TreePine className="h-3 w-3" />
+                            )}
+                            {generatingTreePdfId === pdf.pdf_id ? 'Generating...' : 'Gen Tree'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {isActive && (
