@@ -572,7 +572,7 @@ export default function ChatSessionPage() {
     return (
       <div key={message.message_id} className={`flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 group/message w-full overflow-hidden box-border`}>
         <div className={`flex gap-2 md:gap-4 w-full box-border ${isUser ? 'justify-end' : 'justify-start'}`}>
-          <div className={`flex gap-2 md:gap-3 w-full max-w-full ${isComparison ? 'md:max-w-full' : 'md:max-w-[85%] sm:w-auto'} ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+          <div className={`flex gap-2 md:gap-3 w-full max-w-full ${isComparison ? 'md:max-w-full' : 'md:max-w-[85%]'} ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
             {/* Avatar */}
             <div className={`
               flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] dark:shadow-none border mt-1
@@ -585,7 +585,7 @@ export default function ChatSessionPage() {
             </div>
 
             {/* Message Content */}
-            <div className={`space-y-2 flex-1 ${isUser ? 'text-right' : 'text-left'} min-w-0 max-w-full w-full overflow-hidden box-border shrink`}>
+            <div className={`space-y-2 relative flex-1 ${isUser ? 'text-right' : 'text-left'} min-w-0 max-w-full overflow-hidden box-border`}>
               {isComparison ? (
                 /* Comparison Mode Layout */
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
@@ -654,55 +654,55 @@ export default function ChatSessionPage() {
                   )}
                 </Button>
               )}
+
+              {/* References - below message content */}
+              {!isUser && references.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <div className="text-[10px] md:text-[11px] font-bold text-zinc-500 dark:text-gray-400 flex items-center gap-1.5 uppercase tracking-wider">
+                    <BookOpen className="h-3 w-3 md:h-3.5 md:w-3.5 text-lime-600 dark:text-lime-accent" />
+                    Sources ({references.length})
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {references.map((ref, index) => {
+                      const isVector = ref.source !== 'pageindex';
+                      const borderColor = isVector
+                        ? "hover:border-yellow-300 dark:hover:border-yellow-500/50"
+                        : "hover:border-lime-300 dark:hover:border-lime-500/50";
+                      const hoverTextColor = isVector
+                        ? "group-hover/ref:text-yellow-600 dark:group-hover/ref:text-yellow-500"
+                        : "group-hover/ref:text-lime-600 dark:group-hover/ref:text-lime-accent";
+                      const badgeClass = isVector
+                        ? "bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-500 border-yellow-200 dark:border-yellow-500/20 group-hover/ref:bg-yellow-100 dark:group-hover/ref:bg-yellow-500/20"
+                        : "bg-lime-50 dark:bg-lime-accent/10 text-lime-700 dark:text-lime-accent border-lime-200 dark:border-lime-accent/20 group-hover/ref:bg-lime-100 dark:group-hover/ref:bg-lime-accent/20";
+
+                      return (
+                        <div
+                          key={index}
+                          className={`text-xs p-3 md:p-3.5 bg-white dark:bg-[#1A1A1A] border border-zinc-200 dark:border-white/5 rounded-xl cursor-pointer hover:shadow-md dark:shadow-none hover:-translate-y-0.5 transition-all duration-300 group/ref ${borderColor}`}
+                          onClick={() => handleReferenceClick(ref)}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className={`font-bold text-zinc-900 dark:text-white transition-colors line-clamp-1 pr-2 ${hoverTextColor}`}>
+                              {ref.pdf_name}
+                            </span>
+                            <Badge variant="secondary" className={`text-[10px] h-5 px-1.5 font-bold border transition-colors whitespace-nowrap ${badgeClass}`}>
+                              {isVector ? `${Math.round(ref.similarity * 100)}% MATCH` : 'PAGEINDEX'}
+                            </Badge>
+                          </div>
+                          <div className="text-zinc-600 dark:text-gray-300 line-clamp-2 leading-relaxed font-serif italic text-[11px] md:text-xs">
+                            &ldquo;{ref.chunk_text.substring(0, 150)}...&rdquo;
+                          </div>
+                          <div className="mt-2.5 pt-2.5 border-t border-zinc-100 dark:border-white/5 text-[10px] font-semibold text-zinc-400 dark:text-gray-500 flex items-center gap-1.5 uppercase tracking-widest">
+                            <FileText className="h-3 w-3" />
+                            Page {ref.page_number}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-
-            {/* References */}
-            {!isUser && references.length > 0 && (
-              <div className="space-y-2 pl-1 pt-1.5">
-                <div className="text-[10px] md:text-[11px] font-bold text-zinc-500 dark:text-gray-400 flex items-center gap-1.5 uppercase tracking-wider">
-                  <BookOpen className="h-3 w-3 md:h-3.5 md:w-3.5 text-lime-600 dark:text-lime-accent" />
-                  Sources ({references.length})
-                </div>
-                <div className="grid gap-2">
-                  {references.map((ref, index) => {
-                    const isVector = ref.source !== 'pageindex';
-                    const borderColor = isVector
-                      ? "hover:border-yellow-300 dark:hover:border-yellow-500/50"
-                      : "hover:border-lime-300 dark:hover:border-lime-500/50";
-                    const hoverTextColor = isVector
-                      ? "group-hover/ref:text-yellow-600 dark:group-hover/ref:text-yellow-500"
-                      : "group-hover/ref:text-lime-600 dark:group-hover/ref:text-lime-accent";
-                    const badgeClass = isVector
-                      ? "bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-500 border-yellow-200 dark:border-yellow-500/20 group-hover/ref:bg-yellow-100 dark:group-hover/ref:bg-yellow-500/20"
-                      : "bg-lime-50 dark:bg-lime-accent/10 text-lime-700 dark:text-lime-accent border-lime-200 dark:border-lime-accent/20 group-hover/ref:bg-lime-100 dark:group-hover/ref:bg-lime-accent/20";
-
-                    return (
-                      <div
-                        key={index}
-                        className={`text-xs p-3 md:p-3.5 bg-white dark:bg-[#1A1A1A] border border-zinc-200 dark:border-white/5 rounded-xl cursor-pointer hover:shadow-md dark:shadow-none hover:-translate-y-0.5 transition-all duration-300 group/ref ${borderColor}`}
-                        onClick={() => handleReferenceClick(ref)}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className={`font-bold text-zinc-900 dark:text-white transition-colors line-clamp-1 pr-2 ${hoverTextColor}`}>
-                            {ref.pdf_name}
-                          </span>
-                          <Badge variant="secondary" className={`text-[10px] h-5 px-1.5 font-bold border transition-colors whitespace-nowrap ${badgeClass}`}>
-                            {isVector ? `${Math.round(ref.similarity * 100)}% MATCH` : 'PAGEINDEX'}
-                          </Badge>
-                        </div>
-                        <div className="text-zinc-600 dark:text-gray-300 line-clamp-2 leading-relaxed font-serif italic text-[11px] md:text-xs">
-                          "{ref.chunk_text.substring(0, 150)}..."
-                        </div>
-                        <div className="mt-2.5 pt-2.5 border-t border-zinc-100 dark:border-white/5 text-[10px] font-semibold text-zinc-400 dark:text-gray-500 flex items-center gap-1.5 uppercase tracking-widest">
-                          <FileText className="h-3 w-3" />
-                          Page {ref.page_number}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

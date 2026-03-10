@@ -24,6 +24,12 @@ import 'react-pdf/dist/Page/TextLayer.css';
 // Configure PDF.js worker to always match the underlying API version
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
+const pdfOptions = {
+  cMapUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+  cMapPacked: true,
+  standardFontDataUrl: `//unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
+};
+
 interface PdfViewerProps {
   pdf: PdfFile | null;
   highlightedReference: PdfReference | null;
@@ -353,6 +359,7 @@ export function PdfViewer({ pdf, highlightedReference, onPageChange }: PdfViewer
                   file={file as any}
                   onLoadSuccess={onDocumentLoadSuccess}
                   onLoadError={onDocumentLoadError}
+                  options={pdfOptions}
                   loading={
                     <div className="flex items-center justify-center h-[400px]">
                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
