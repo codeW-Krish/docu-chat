@@ -560,10 +560,16 @@ export default function ChatSessionPage() {
   };
 
   const handleGenerateTree = async (pdfId: string) => {
+    console.log('[TreeGen] === MANUAL TREE GENERATION START ===' );
+    console.log('[TreeGen] PDF ID:', pdfId);
+    console.log('[TreeGen] Provider:', provider, '| Model:', model);
     setGeneratingTreePdfId(pdfId);
     try {
+      console.log('[TreeGen] Calling api.generateTree()...');
       const result = await api.generateTree(pdfId, provider, model);
+      console.log('[TreeGen] API response:', JSON.stringify(result, null, 2));
       if (result.status === 'success') {
+        console.log('[TreeGen] SUCCESS - tree_file_id:', result.data?.tree_file_id, '| tree_status:', result.data?.tree_status);
         toast({
           title: "Tree Generated",
           description: "PageIndex tree has been generated successfully.",
@@ -571,16 +577,18 @@ export default function ChatSessionPage() {
         // Refresh PDFs to update tree_status
         await loadSessionData();
       } else {
-        throw new Error('Tree generation failed');
+        console.error('[TreeGen] FAILED - response status not success:', result);
+        throw new Error(result.message || 'Tree generation failed');
       }
     } catch (error) {
-      console.error("Failed to generate tree:", error);
+      console.error('[TreeGen] EXCEPTION:', error);
       toast({
         title: "Error",
         description: "Failed to generate tree. Please try again.",
         variant: "destructive",
       });
     } finally {
+      console.log('[TreeGen] === MANUAL TREE GENERATION END ===');
       setGeneratingTreePdfId(null);
     }
   };

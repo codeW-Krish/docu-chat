@@ -42,19 +42,30 @@ class PageIndexService:
             from appwrite.input_file import InputFile
             from appwrite.id import ID
 
+            endpoint = os.getenv('APPWRITE_ENDPOINT')
+            project_id = os.getenv('APPWRITE_PROJECT_ID')
+            api_key = os.getenv('APPWRITE_API_KEY')
+            bucket_id = os.getenv('APPWRITE_STORAGE_BUCKET_ID')
+
+            logger.info(f"[TreeGen-Appwrite] Initializing Appwrite:")
+            logger.info(f"[TreeGen-Appwrite]   ENDPOINT: {endpoint}")
+            logger.info(f"[TreeGen-Appwrite]   PROJECT_ID: {project_id}")
+            logger.info(f"[TreeGen-Appwrite]   API_KEY: {'***' + api_key[-4:] if api_key and len(api_key) > 4 else 'NOT SET'}")
+            logger.info(f"[TreeGen-Appwrite]   BUCKET_ID: {bucket_id}")
+
             client = Client()
-            client.set_endpoint(os.getenv('APPWRITE_ENDPOINT'))
-            client.set_project(os.getenv('APPWRITE_PROJECT_ID'))
-            client.set_key(os.getenv('APPWRITE_API_KEY'))
+            client.set_endpoint(endpoint)
+            client.set_project(project_id)
+            client.set_key(api_key)
 
             self.storage = Storage(client)
-            self.bucket_id = os.getenv('APPWRITE_STORAGE_BUCKET_ID')
+            self.bucket_id = bucket_id
             self.InputFile = InputFile
             self.ID = ID
             self._appwrite_available = True
-            logger.info("PageIndexService: Appwrite initialized for tree storage")
+            logger.info("[TreeGen-Appwrite] Appwrite initialized successfully")
         except Exception as e:
-            logger.warning(f"PageIndexService: Appwrite not available: {e}")
+            logger.warning(f"[TreeGen-Appwrite] Appwrite NOT available: {e}")
             self.storage = None
             self._appwrite_available = False
 
@@ -74,7 +85,9 @@ class PageIndexService:
             dict with tree JSON and tree_file_id (if uploaded to Appwrite)
         """
         try:
-            logger.info(f"Generating PageIndex tree for PDF {pdf_id}")
+            logger.info(f"[TreeGen-SVC] === generate_tree_from_pages START ===")
+            logger.info(f"[TreeGen-SVC] pdf_id={pdf_id} provider={provider} model={model}")
+            logger.info(f"[TreeGen-SVC] pages_data count: {len(pages_data)}")
 
             # Build page texts
             page_texts = {}
@@ -82,62 +95,89 @@ class PageIndexService:
                 if page.get('text', '').strip():
                     page_texts[page['page_number']] = page['text']
 
+            logger.info(f"[TreeGen-SVC] Non-empty page_texts count: {len(page_texts)}")
+
             if len(page_texts) < 1:
-                logger.warning(f"No text pages to build tree for PDF {pdf_id}")
+                logger.warning(f"[TreeGen-SVC] ABORT: No text pages to build tree for PDF {pdf_id}")
                 return {'status': 'error', 'message': 'No text content for tree generation'}
 
             # Try using PageIndex library first
+            logger.info("[TreeGen-SVC] Step 1: Trying PageIndex library...")
             tree = self._generate_tree_with_library(page_texts, provider, model)
             if tree is None:
                 # Fallback: generate tree using LLM directly
+                logger.info("[TreeGen-SVC] Step 2: Library returned None, trying LLM fallback...")
                 tree = self._generate_tree_with_llm(page_texts, provider, model)
 
             if tree is None:
+                logger.error("[TreeGen-SVC] ABORT: Both library and LLM failed to generate tree")
                 return {'status': 'error', 'message': 'Tree generation failed'}
+
+            logger.info(f"[TreeGen-SVC] Tree generated successfully! Keys: {list(tree.keys())}")
+            logger.info(f"[TreeGen-SVC] Tree title: {tree.get('title', 'N/A')}")
+            logger.info(f"[TreeGen-SVC] Tree top-level nodes: {len(tree.get('nodes', []))}")
 
             # Add page texts to tree for later retrieval
             tree['_page_texts'] = {str(k): v for k, v in page_texts.items()}
+            logger.info(f"[TreeGen-SVC] Added _page_texts ({len(page_texts)} pages)")
 
             # Upload tree to Appwrite
+            logger.info("[TreeGen-SVC] Step 3: Uploading tree to Appwrite...")
+            logger.info(f"[TreeGen-SVC] Appwrite available: {self._appwrite_available}")
+            logger.info(f"[TreeGen-SVC] Bucket ID: {self.bucket_id}")
             tree_file_id = self._upload_tree_to_appwrite(tree, pdf_id)
+            logger.info(f"[TreeGen-SVC] Appwrite upload result: tree_file_id={tree_file_id}")
 
-            logger.info(f"Tree generation complete for PDF {pdf_id}, file_id={tree_file_id}")
+            if tree_file_id is None:
+                logger.error("[TreeGen-SVC] WARNING: tree_file_id is None — Appwrite upload failed!")
+
+            node_count = self._count_nodes(tree)
+            logger.info(f"[TreeGen-SVC] === generate_tree_from_pages DONE === file_id={tree_file_id}, nodes={node_count}")
             return {
                 'status': 'success',
                 'tree_file_id': tree_file_id,
-                'node_count': self._count_nodes(tree)
+                'node_count': node_count
             }
 
         except Exception as e:
-            logger.error(f"Tree generation failed for PDF {pdf_id}: {e}")
+            logger.error(f"[TreeGen-SVC] EXCEPTION in generate_tree_from_pages: {e}", exc_info=True)
             return {'status': 'error', 'message': str(e)}
 
     def _generate_tree_with_library(self, page_texts, provider, model):
         """Try generating tree using the PageIndex library."""
         try:
+            logger.info("[TreeGen-Lib] Attempting to import pageindex library...")
             from pageindex import PageIndex
 
             # PageIndex expects a list of page strings
             pages_list = [page_texts.get(i, '') for i in range(1, max(page_texts.keys()) + 1)]
+            logger.info(f"[TreeGen-Lib] Built pages_list with {len(pages_list)} entries")
 
             pi = PageIndex()
+            logger.info("[TreeGen-Lib] PageIndex() instantiated, calling build_tree()...")
             tree = pi.build_tree(pages_list)
 
             if tree and isinstance(tree, dict):
-                logger.info("Tree generated using PageIndex library")
+                logger.info(f"[TreeGen-Lib] SUCCESS: Tree generated via PageIndex library, keys={list(tree.keys())}")
                 return tree
+            else:
+                logger.warning(f"[TreeGen-Lib] build_tree returned invalid result: type={type(tree)}, value={str(tree)[:200]}")
 
         except ImportError:
-            logger.info("PageIndex library not installed, using LLM fallback")
+            logger.info("[TreeGen-Lib] PageIndex library NOT installed, will use LLM fallback")
         except Exception as e:
-            logger.warning(f"PageIndex library failed: {e}, using LLM fallback")
+            logger.warning(f"[TreeGen-Lib] PageIndex library FAILED: {e}", exc_info=True)
 
         return None
 
     def _generate_tree_with_llm(self, page_texts, provider, model):
         """Generate tree using LLM analysis of the document."""
+        logger.info(f"[TreeGen-LLM] === LLM tree generation START ===")
+        logger.info(f"[TreeGen-LLM] provider={provider} model={model}")
+        logger.info(f"[TreeGen-LLM] ai_generator available: {self.ai_generator is not None}")
+
         if not self.ai_generator:
-            logger.error("No AI generator available for tree generation")
+            logger.error("[TreeGen-LLM] ABORT: No AI generator available")
             return None
 
         try:
@@ -151,6 +191,7 @@ class PageIndexService:
                     doc_summary_parts.append(f"--- PAGE {page_num} ---\n{preview}")
 
             doc_overview = "\n\n".join(doc_summary_parts[:50])  # Limit to 50 pages for prompt
+            logger.info(f"[TreeGen-LLM] Built doc_overview: {len(doc_summary_parts)} pages, {len(doc_overview)} chars")
 
             prompt = f"""Analyze this document and create a hierarchical tree index (like a table of contents).
 
@@ -192,21 +233,26 @@ Rules:
 
 JSON:"""
 
+            logger.info(f"[TreeGen-LLM] Calling _call_llm with provider={provider} model={model} max_tokens=4000...")
             response = self.ai_generator._call_llm(
                 prompt, provider=provider, model=model,
                 max_tokens=4000, temperature=0.1
             )
+            logger.info(f"[TreeGen-LLM] LLM response received, length={len(response) if response else 0}")
+            logger.info(f"[TreeGen-LLM] LLM response preview: {(response or '')[:300]}")
 
             # Parse JSON from response
+            logger.info("[TreeGen-LLM] Parsing JSON from LLM response...")
             tree = self._parse_json_response(response)
             if tree and 'nodes' in tree:
-                logger.info("Tree generated using LLM analysis")
+                logger.info(f"[TreeGen-LLM] SUCCESS: Tree parsed, title={tree.get('title')}, top-level nodes={len(tree.get('nodes', []))}")
                 return tree
             else:
-                logger.warning("LLM tree generation returned invalid structure")
+                logger.warning(f"[TreeGen-LLM] FAILED: Invalid tree structure. Got type={type(tree)}, keys={list(tree.keys()) if isinstance(tree, dict) else 'N/A'}")
                 return None
 
         except Exception as e:
+            logger.error(f"[TreeGen-LLM] EXCEPTION: {e}", exc_info=True)
             logger.error(f"LLM tree generation failed: {e}")
             return None
 
@@ -244,34 +290,47 @@ JSON:"""
 
     def _upload_tree_to_appwrite(self, tree, pdf_id):
         """Upload tree JSON to Appwrite bucket."""
+        logger.info(f"[TreeGen-Upload] === _upload_tree_to_appwrite START ===")
+        logger.info(f"[TreeGen-Upload] pdf_id={pdf_id}")
+        logger.info(f"[TreeGen-Upload] _appwrite_available={self._appwrite_available}")
+        logger.info(f"[TreeGen-Upload] bucket_id={self.bucket_id}")
+        logger.info(f"[TreeGen-Upload] storage object: {self.storage}")
+
         if not self._appwrite_available:
-            logger.warning("Appwrite not available, tree not persisted")
+            logger.error("[TreeGen-Upload] ABORT: Appwrite not available, tree will NOT be persisted!")
             return None
 
         try:
             tree_json = json.dumps(tree, ensure_ascii=False)
             tree_bytes = tree_json.encode('utf-8')
+            logger.info(f"[TreeGen-Upload] Tree JSON size: {len(tree_bytes)} bytes")
 
             # Save to temp file for upload
             fd, tmp_path = tempfile.mkstemp(suffix='.json')
             with os.fdopen(fd, 'wb') as f:
                 f.write(tree_bytes)
+            logger.info(f"[TreeGen-Upload] Temp file written: {tmp_path}")
 
             try:
                 file_id = self.ID.unique()
+                logger.info(f"[TreeGen-Upload] Generated file_id: {file_id}")
+                logger.info(f"[TreeGen-Upload] Calling storage.create_file(bucket={self.bucket_id}, file_id={file_id})...")
+
                 result = self.storage.create_file(
                     bucket_id=self.bucket_id,
                     file_id=file_id,
                     file=self.InputFile.from_path(tmp_path),
                 )
-                logger.info(f"Tree uploaded to Appwrite: {result['$id']}")
+                logger.info(f"[TreeGen-Upload] SUCCESS! Appwrite returned: $id={result['$id']}, size={result.get('sizeOriginal', '?')} bytes")
+                logger.info(f"[TreeGen-Upload] Full Appwrite response keys: {list(result.keys())}")
                 return result['$id']
             finally:
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
+                    logger.info(f"[TreeGen-Upload] Temp file cleaned up: {tmp_path}")
 
         except Exception as e:
-            logger.error(f"Failed to upload tree to Appwrite: {e}")
+            logger.error(f"[TreeGen-Upload] EXCEPTION during Appwrite upload: {e}", exc_info=True)
             return None
 
     def download_tree_from_appwrite(self, tree_file_id):

@@ -647,10 +647,13 @@ class ApiClient {
   }
 
   async generateTree(pdfId: string, provider?: LlmProvider, model?: string): Promise<ApiResponse<{ tree_file_id: string; tree_status: string }>> {
-    return this.request<ApiResponse<{ tree_file_id: string; tree_status: string }>>('/api/pdfs/generate-tree', {
+    console.log('[api.generateTree] Sending POST /api/pdfs/generate-tree', { pdf_id: pdfId, provider, model });
+    const result = await this.request<ApiResponse<{ tree_file_id: string; tree_status: string }>>('/api/pdfs/generate-tree', {
       method: 'POST',
       body: JSON.stringify({ pdf_id: pdfId, provider, model }),
     });
+    console.log('[api.generateTree] Response received:', JSON.stringify(result));
+    return result;
   }
 
   async createSession(name: string, pdfIds: string[], provider?: LlmProvider, model?: string): Promise<{ session: ChatSession }> {

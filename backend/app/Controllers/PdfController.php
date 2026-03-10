@@ -537,13 +537,17 @@ class PdfController extends BaseController
     public function generateTree()
     {
         try {
+            log_message('info', '[TreeGen-PHP] === GENERATE TREE REQUEST START ===');
             $data = $this->request->getJSON(true);
             $userId = $this->request->user->user_id;
             $pdfId = $data['pdf_id'] ?? null;
             $provider = $data['provider'] ?? null;
             $model = $data['model'] ?? null;
 
+            log_message('info', '[TreeGen-PHP] pdf_id=' . $pdfId . ' user_id=' . $userId . ' provider=' . ($provider ?? 'null') . ' model=' . ($model ?? 'null'));
+
             if (!$pdfId) {
+                log_message('error', '[TreeGen-PHP] ABORT: pdf_id is missing');
                 return $this->response->setJSON([
                     'status' => 'error',
                     'message' => 'pdf_id required'
@@ -553,14 +557,17 @@ class PdfController extends BaseController
             // Verify PDF belongs to user
             $pdf = $this->pdfModel->getPdfById($pdfId, $userId);
             if (!$pdf) {
+                log_message('error', '[TreeGen-PHP] ABORT: PDF not found or access denied for pdf_id=' . $pdfId);
                 return $this->response->setJSON([
                     'status' => 'error',
                     'message' => 'PDF not found or access denied'
                 ])->setStatusCode(404);
             }
+            log_message('info', '[TreeGen-PHP] PDF ownership verified: ' . ($pdf['file_name'] ?? 'unknown'));
 
             // Call Python service to generate tree
             $pythonServerUrl = getenv('PYTHON_SERVER_URL') ?: 'http://localhost:5000';
+            $targetUrl = $pythonServerUrl . '/generate-tree';
 
             $postData = json_encode([
                 'pdf_id' => $pdfId,
@@ -569,9 +576,12 @@ class PdfController extends BaseController
                 'model' => $model
             ]);
 
+            log_message('info', '[TreeGen-PHP] Calling Python: ' . $targetUrl);
+            log_message('info', '[TreeGen-PHP] POST data: ' . $postData);
+
             $ch = curl_init();
             curl_setopt_array($ch, [
-                CURLOPT_URL => $pythonServerUrl . '/generate-tree',
+                CURLOPT_URL => $targetUrl,
                 CURLOPT_POST => true,
                 CURLOPT_POSTFIELDS => $postData,
                 CURLOPT_RETURNTRANSFER => true,
@@ -585,23 +595,35 @@ class PdfController extends BaseController
             $error = curl_error($ch);
             curl_close($ch);
 
+            log_message('info', '[TreeGen-PHP] Python response HTTP ' . $httpCode);
+            log_message('info', '[TreeGen-PHP] Python response body: ' . substr($response ?: '', 0, 1000));
+
+            if ($error) {
+                log_message('error', '[TreeGen-PHP] cURL error: ' . $error);
+            }
+
             if ($httpCode !== 200) {
-                log_message('error', 'Generate tree Python error: ' . $error . ' Response: ' . $response);
-                throw new \Exception('AI server error during tree generation');
+                log_message('error', '[TreeGen-PHP] FAILED: Python returned HTTP ' . $httpCode . ' | error: ' . $error . ' | response: ' . $response);
+                throw new \Exception('AI server error during tree generation (HTTP ' . $httpCode . ')');
             }
 
             $result = json_decode($response, true);
+            log_message('info', '[TreeGen-PHP] Parsed result status: ' . ($result['status'] ?? 'null') . ' | tree_file_id: ' . ($result['tree_file_id'] ?? 'null'));
 
-            return $this->response->setJSON([
+            $finalResponse = [
                 'status' => $result['status'] ?? 'success',
                 'data' => [
                     'tree_file_id' => $result['tree_file_id'] ?? null,
-                    'tree_status' => $result['status'] === 'success' ? 'completed' : 'failed'
+                    'tree_status' => ($result['status'] ?? '') === 'success' ? 'completed' : 'failed'
                 ]
-            ]);
+            ];
+            log_message('info', '[TreeGen-PHP] Returning to frontend: ' . json_encode($finalResponse));
+            log_message('info', '[TreeGen-PHP] === GENERATE TREE REQUEST END ===');
+
+            return $this->response->setJSON($finalResponse);
 
         } catch (\Exception $e) {
-            log_message('error', 'Generate tree error: ' . $e->getMessage());
+            log_message('error', '[TreeGen-PHP] EXCEPTION: ' . $e->getMessage());
             return $this->response->setJSON([
                 'status' => 'error',
                 'message' => 'Failed to generate tree: ' . $e->getMessage()

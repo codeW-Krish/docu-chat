@@ -432,7 +432,12 @@ def _handle_pageindex_stream(question, pdf_ids, user_id, provider, model):
 def generate_tree():
     """Manual tree generation endpoint."""
     try:
+        logger.info("[TreeGen-Py] === /generate-tree ENDPOINT HIT ===")
+        logger.info(f"[TreeGen-Py] pageindex_service available: {pageindex_service is not None}")
+        logger.info(f"[TreeGen-Py] services_available: {services_available}")
+
         if not pageindex_service or not services_available:
+            logger.error("[TreeGen-Py] ABORT: PageIndex service not available")
             return jsonify({'status': 'error', 'message': 'PageIndex service not available'}), 503
 
         data = request.get_json()
@@ -441,11 +446,15 @@ def generate_tree():
         provider = data.get('provider', 'groq')
         model = data.get('model')
 
+        logger.info(f"[TreeGen-Py] pdf_id={pdf_id} user_id={user_id} provider={provider} model={model}")
+
         if not pdf_id or not user_id:
+            logger.error("[TreeGen-Py] ABORT: missing pdf_id or user_id")
             return jsonify({'status': 'error', 'message': 'pdf_id and user_id required'}), 400
 
         # Download PDF text from DB
         from .database import get_db_connection
+        logger.info("[TreeGen-Py] Fetching chunks from DB...")
         conn = get_db_connection()
         with conn.cursor() as cur:
             cur.execute(
@@ -455,7 +464,10 @@ def generate_tree():
             rows = cur.fetchall()
         conn.close()
 
+        logger.info(f"[TreeGen-Py] Found {len(rows)} chunk rows from DB")
+
         if not rows:
+            logger.error(f"[TreeGen-Py] ABORT: No chunks found for pdf_id={pdf_id}")
             return jsonify({'status': 'error', 'message': 'No chunks found for this PDF'}), 404
 
         # Reconstruct pages_data from chunks
@@ -471,11 +483,18 @@ def generate_tree():
             for pn, texts in sorted(page_texts.items())
         ]
 
+        logger.info(f"[TreeGen-Py] Reconstructed {len(pages_data)} pages from chunks")
+        for p in pages_data[:3]:
+            logger.info(f"[TreeGen-Py]   Page {p['page_number']}: {len(p['text'])} chars")
+
+        logger.info("[TreeGen-Py] Calling pageindex_service.generate_tree_from_pages()...")
         result = pageindex_service.generate_tree_from_pages(
             pages_data, pdf_id, provider=provider, model=model
         )
+        logger.info(f"[TreeGen-Py] generate_tree_from_pages result: status={result.get('status')} tree_file_id={result.get('tree_file_id')} message={result.get('message', 'none')}")
 
         # Update DB with tree info
+        logger.info("[TreeGen-Py] Updating DB with tree info...")
         conn = get_db_connection()
         with conn.cursor() as cur:
             if result.get('status') == 'success':
@@ -483,16 +502,19 @@ def generate_tree():
                     "UPDATE pdfs SET tree_file_id = %s, tree_status = 'completed' WHERE pdf_id = %s",
                     (result.get('tree_file_id'), pdf_id)
                 )
+                logger.info(f"[TreeGen-Py] DB updated: tree_file_id={result.get('tree_file_id')}, tree_status=completed")
             else:
                 cur.execute(
                     "UPDATE pdfs SET tree_status = 'failed' WHERE pdf_id = %s",
                     (pdf_id,)
                 )
+                logger.info(f"[TreeGen-Py] DB updated: tree_status=failed")
         conn.commit()
         conn.close()
 
+        logger.info(f"[TreeGen-Py] === /generate-tree DONE, returning: {result.get('status')} ===")
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Generate tree endpoint error: {e}")
+        logger.error(f"[TreeGen-Py] EXCEPTION in /generate-tree: {e}", exc_info=True)
         return jsonify({'status': 'error', 'message': str(e)}), 500
