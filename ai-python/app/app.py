@@ -174,11 +174,11 @@ def chat():
         # Handle retrieval modes
         if retrieval_mode == 'pageindex' and pageindex_service:
             # PageIndex-only mode
-            result = _handle_pageindex_chat(question, pdf_ids, user_id, provider, model)
+            result = _handle_pageindex_chat(question, pdf_ids, user_id, conversation_history, provider, model)
         elif retrieval_mode == 'comparison' and pageindex_service:
             # Comparison mode: both Vector + PageIndex
             vector_result = ai_generator.generate_answer(question, pdf_ids, user_id, session_id, conversation_history, provider, model=model)
-            pageindex_result = _handle_pageindex_chat(question, pdf_ids, user_id, provider, model)
+            pageindex_result = _handle_pageindex_chat(question, pdf_ids, user_id, conversation_history, provider, model)
             
             combined_answer = vector_result.get('answer', '') + "\n\n|||COMPARISON_SPLIT|||\n\n" + pageindex_result.get('answer', '')
             combined_refs = vector_result.get('references', []) + pageindex_result.get('references', [])
@@ -245,7 +245,7 @@ def chat_stream():
             try:
                 if retrieval_mode == 'pageindex' and pageindex_service:
                     # Stream from PageIndex
-                    for chunk in _handle_pageindex_stream(question, pdf_ids, user_id, provider, model):
+                    for chunk in _handle_pageindex_stream(question, pdf_ids, user_id, conversation_history, provider, model):
                         yield f"data: {json.dumps(chunk)}\n\n"
                 elif retrieval_mode == 'comparison' and pageindex_service:
                     # Stream Vector
@@ -262,7 +262,7 @@ def chat_stream():
                     
                     # Stream PageIndex
                     pageindex_refs = []
-                    for chunk in _handle_pageindex_stream(question, pdf_ids, user_id, provider, model):
+                    for chunk in _handle_pageindex_stream(question, pdf_ids, user_id, conversation_history, provider, model):
                         if chunk.get('type') == 'metadata':
                             pageindex_refs = chunk.get('references', [])
                         else:
@@ -377,7 +377,7 @@ def _get_tree_for_pdf(pdf_id):
         logger.warning(f"Failed to load tree for PDF {pdf_id}: {e}")
         return None
 
-def _handle_pageindex_chat(question, pdf_ids, user_id, provider, model):
+def _handle_pageindex_chat(question, pdf_ids, user_id, conversation_history, provider, model):
     """Handle a chat request using PageIndex retrieval."""
     # Try first PDF that has a tree
     for pdf_id in pdf_ids:
@@ -396,13 +396,13 @@ def _handle_pageindex_chat(question, pdf_ids, user_id, provider, model):
                 pdf_name = 'Unknown'
 
             return pageindex_service.generate_answer_from_tree(
-                question, tree, pdf_id, pdf_name, provider, model
+                question, tree, pdf_id, pdf_name, provider, model, conversation_history
             )
 
     # No trees available — fall back to vector
     return ai_generator.generate_answer(question, pdf_ids, user_id, provider=provider, model=model)
 
-def _handle_pageindex_stream(question, pdf_ids, user_id, provider, model):
+def _handle_pageindex_stream(question, pdf_ids, user_id, conversation_history, provider, model):
     """Handle streaming chat using PageIndex retrieval."""
     for pdf_id in pdf_ids:
         tree = _get_tree_for_pdf(pdf_id)
@@ -419,7 +419,7 @@ def _handle_pageindex_stream(question, pdf_ids, user_id, provider, model):
                 pdf_name = 'Unknown'
 
             yield from pageindex_service.generate_answer_stream_from_tree(
-                question, tree, pdf_id, pdf_name, provider, model
+                question, tree, pdf_id, pdf_name, provider, model, conversation_history
             )
             return
 

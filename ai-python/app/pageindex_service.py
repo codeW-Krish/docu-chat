@@ -12,6 +12,7 @@ import logging
 import tempfile
 import requests
 import re
+from difflib import SequenceMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -385,7 +386,7 @@ JSON:"""
 
     # ─── Tree Search (LLM Reasoning) ─────────────────────────────────
 
-    def tree_search(self, query, tree, provider='groq', model=None):
+    def tree_search(self, query, tree, provider='groq', model=None, conversation_history=None):
         """
         Use LLM reasoning to find relevant sections in the tree.
 
@@ -397,11 +398,12 @@ JSON:"""
 
         try:
             page_texts = tree.get('_page_texts', {})
-            query_shape = self._analyze_query_shape(query)
+            effective_query = self._prepare_query_for_retrieval(query, conversation_history, provider, model)
+            query_shape = self._analyze_query_shape(effective_query)
             probe_budget = min(self.base_candidates, self.max_candidates)
 
             probe_candidates = self._rank_tree_candidates(
-                query,
+                effective_query,
                 tree,
                 page_texts,
                 max_candidates=probe_budget,
@@ -411,7 +413,7 @@ JSON:"""
                 logger.warning("Tree search found no probe candidates")
                 return []
 
-            expanded_query = self._expand_query(query, probe_candidates)
+            expanded_query = self._expand_query(effective_query, probe_candidates)
             if expanded_query != query:
                 probe_candidates = self._rank_tree_candidates(
                     expanded_query,
@@ -453,7 +455,7 @@ JSON:"""
 
             if self._is_low_confidence(candidate_nodes):
                 logger.info("[PageIndex-Search] Low confidence rank detected. Running broad pass over full tree catalog.")
-                broad_node_ids = self._broad_tree_pass(query, tree, provider, model)
+                broad_node_ids = self._broad_tree_pass(effective_query, tree, provider, model)
                 if broad_node_ids:
                     broad_candidates = self._candidates_from_node_ids(broad_node_ids, tree, page_texts)
                     candidate_nodes = self._merge_candidates(candidate_nodes, broad_candidates, limit=candidate_budget)
@@ -525,20 +527,7 @@ JSON:"""
                 logger.warning("Tree search LLM returned no relevant nodes; using ranked fallback")
                 return self._build_relevant_info(candidate_nodes[:3])
 
-            candidate_map = {c['node_id']: c for c in candidate_nodes}
-
-            # Extract page ranges for relevant nodes
-            relevant_info = []
-            for node_info in result['relevant_nodes']:
-                node_id = str(node_info.get('node_id', '')).strip()
-                candidate = candidate_map.get(node_id)
-                if candidate:
-                    relevant_info.append({
-                        'node_id': node_id,
-                        'title': node_info.get('title', '') or candidate['title'],
-                        'reason': node_info.get('reason', ''),
-                        'pages': candidate['pages']
-                    })
+            relevant_info = self._resolve_llm_selected_candidates(result.get('relevant_nodes', []), candidate_nodes)
 
             if not relevant_info:
                 logger.warning("Tree search LLM node IDs did not match candidates; using ranked fallback")
@@ -564,7 +553,7 @@ JSON:"""
             return self._build_relevant_info(fallback_candidates)
 
     def generate_answer_from_tree(self, query, tree, pdf_id, pdf_name,
-                                   provider='groq', model=None):
+                                   provider='groq', model=None, conversation_history=None):
         """
         Full PageIndex RAG pipeline:
         1. Tree search → find relevant sections
@@ -579,7 +568,7 @@ JSON:"""
 
         try:
             # Step 1: Tree search
-            relevant_sections = self.tree_search(query, tree, provider, model)
+            relevant_sections = self.tree_search(query, tree, provider, model, conversation_history)
 
             if not relevant_sections:
                 return {
@@ -665,7 +654,7 @@ ANSWER:"""
     # ─── Streaming version ────────────────────────────────────────────
 
     def generate_answer_stream_from_tree(self, query, tree, pdf_id, pdf_name,
-                                          provider='groq', model=None):
+                                          provider='groq', model=None, conversation_history=None):
         """
         Streaming version of generate_answer_from_tree.
         Yields SSE-compatible dicts.
@@ -678,7 +667,7 @@ ANSWER:"""
 
         try:
             # Step 1: Tree search
-            relevant_sections = self.tree_search(query, tree, provider, model)
+            relevant_sections = self.tree_search(query, tree, provider, model, conversation_history)
 
             if not relevant_sections:
                 yield {"type": "metadata", "references": [], "suggested_questions": [], "provider": provider}
@@ -804,6 +793,45 @@ ANSWER:"""
             'question_type': question_type,
         }
 
+    def _looks_like_followup(self, query):
+        """Detect short/ambiguous follow-up phrasing that needs context rewrite."""
+        query_text = (query or '').strip()
+        if not query_text:
+            return False
+
+        query_lower = query_text.lower()
+        tokens = self._tokenize_query(query_text)
+        followup_markers = (
+            'that', 'this', 'it', 'those', 'these', 'them', 'there', 'then',
+            'deeper', 'deep', 'more', 'elaborate', 'expand', 'continue', 'also',
+        )
+
+        marker_hit = any(re.search(rf"\b{re.escape(marker)}\b", query_lower) for marker in followup_markers)
+        return len(tokens) <= 4 or marker_hit
+
+    def _prepare_query_for_retrieval(self, query, conversation_history, provider, model):
+        """Rewrite ambiguous follow-ups into standalone retrieval queries when possible."""
+        if not query:
+            return ''
+
+        if not conversation_history or not self._looks_like_followup(query):
+            return query
+
+        enhancer = getattr(self.ai_generator, '_enhance_question_with_context', None)
+        if not callable(enhancer):
+            return query
+
+        try:
+            rewritten = enhancer(query, conversation_history, provider)
+            rewritten = (rewritten or '').strip()
+            if rewritten and rewritten.lower() != query.strip().lower():
+                logger.info("[PageIndex-Search] Rewrote follow-up query: '%s' -> '%s'", query, rewritten)
+                return rewritten
+        except Exception as e:
+            logger.warning("[PageIndex-Search] Follow-up rewrite failed, using original query: %s", e)
+
+        return query
+
     def _expand_query(self, query, probe_candidates):
         """Expand query using document-adaptive pseudo-relevance feedback (no domain hardcoding)."""
         if not query:
@@ -817,22 +845,45 @@ ANSWER:"""
         if not probe_candidates:
             return base_query
 
+        ranking_stats = self._analyze_ranking_distribution(probe_candidates)
+        should_expand = (
+            ranking_stats.get('non_zero_top10', 0) >= 6
+            and ranking_stats.get('top1_share', 1.0) < 0.45
+            and ranking_stats.get('relative_gap', 1.0) < 0.22
+        )
+        if not should_expand:
+            return base_query
+
         token_counts = {}
+        token_doc_counts = {}
+        doc_total = max(1, len(probe_candidates))
         for candidate in probe_candidates:
             candidate_text = " ".join([
                 candidate.get('title', ''),
                 candidate.get('summary', ''),
                 candidate.get('preview', ''),
             ])
-            for token in self._tokenize_query(candidate_text):
+            candidate_tokens = self._tokenize_query(candidate_text)
+            for token in candidate_tokens:
                 if token in query_tokens:
                     continue
                 token_counts[token] = token_counts.get(token, 0) + 1
+            for token in set(candidate_tokens):
+                if token in query_tokens:
+                    continue
+                token_doc_counts[token] = token_doc_counts.get(token, 0) + 1
 
         if not token_counts:
             return base_query
 
-        ranked_terms = sorted(token_counts.items(), key=lambda x: (-x[1], x[0]))
+        def term_weight(term, count):
+            doc_freq = token_doc_counts.get(term, 0) / doc_total
+            if doc_freq > 0.8:
+                return -1.0
+            # Prefer terms that are frequent but not ubiquitous in probe candidates.
+            return count * (1.0 - doc_freq)
+
+        ranked_terms = sorted(token_counts.items(), key=lambda x: (-term_weight(x[0], x[1]), x[0]))
         feedback_terms = [term for term, _ in ranked_terms[: max(0, self.expansion_max_terms)]]
 
         if not feedback_terms:
@@ -841,6 +892,82 @@ ANSWER:"""
         expanded_query = base_query + " " + " ".join(feedback_terms)
         logger.info("[PageIndex-Search] Expanded query with feedback terms: %s", feedback_terms)
         return expanded_query
+
+    def _normalize_node_id(self, node_id):
+        """Normalize node IDs like 1/001/0001 to a consistent 4-digit key."""
+        raw = str(node_id or '').strip()
+        if not raw:
+            return ''
+        if raw.isdigit():
+            return raw.zfill(4)
+        return raw
+
+    def _resolve_llm_selected_candidates(self, selected_nodes, candidate_nodes):
+        """Resolve LLM-selected nodes against candidates with tolerant ID/title matching."""
+        if not selected_nodes or not candidate_nodes:
+            return []
+
+        direct_map = {str(c.get('node_id', '')).strip(): c for c in candidate_nodes if c.get('node_id')}
+        normalized_map = {self._normalize_node_id(c.get('node_id')): c for c in candidate_nodes if c.get('node_id')}
+        unresolved = []
+        resolved = []
+
+        for node_info in selected_nodes:
+            node_id_raw = str(node_info.get('node_id', '')).strip()
+            candidate = direct_map.get(node_id_raw)
+            if not candidate and node_id_raw:
+                candidate = normalized_map.get(self._normalize_node_id(node_id_raw))
+
+            if not candidate:
+                unresolved.append(node_info)
+                continue
+
+            resolved.append({
+                'node_id': str(candidate.get('node_id', '')).strip(),
+                'title': node_info.get('title', '') or candidate.get('title', ''),
+                'reason': node_info.get('reason', ''),
+                'pages': candidate.get('pages', []),
+            })
+
+        if unresolved:
+            remaining = [c for c in candidate_nodes if str(c.get('node_id', '')).strip() not in {r['node_id'] for r in resolved}]
+            for node_info in unresolved:
+                llm_title = str(node_info.get('title', '')).strip().lower()
+                if not llm_title or not remaining:
+                    continue
+
+                best = None
+                best_score = 0.0
+                for candidate in remaining:
+                    cand_title = str(candidate.get('title', '')).strip().lower()
+                    if not cand_title:
+                        continue
+                    ratio = SequenceMatcher(None, llm_title, cand_title).ratio()
+                    if llm_title in cand_title or cand_title in llm_title:
+                        ratio += 0.2
+                    if ratio > best_score:
+                        best_score = ratio
+                        best = candidate
+
+                if best and best_score >= 0.62:
+                    resolved.append({
+                        'node_id': str(best.get('node_id', '')).strip(),
+                        'title': node_info.get('title', '') or best.get('title', ''),
+                        'reason': node_info.get('reason', ''),
+                        'pages': best.get('pages', []),
+                    })
+
+        deduped = []
+        seen = set()
+        for section in resolved:
+            node_id = section.get('node_id', '')
+            pages = section.get('pages', [])
+            if not node_id or not pages or node_id in seen:
+                continue
+            seen.add(node_id)
+            deduped.append(section)
+
+        return deduped
 
     def _analyze_ranking_distribution(self, ranked_candidates):
         """Summarize how sharp or diffuse the first-pass ranking is."""
