@@ -11,6 +11,7 @@ import json
 import logging
 import tempfile
 import requests
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,14 @@ class PageIndexService:
                           If None, tree search/answer won't work but tree gen still can.
         """
         self.ai_generator = ai_generator
+        # Retrieval tuning knobs (safe defaults, override via env).
+        self.base_candidates = int(os.getenv('PAGEINDEX_BASE_CANDIDATES', '20'))
+        self.max_candidates = int(os.getenv('PAGEINDEX_MAX_CANDIDATES', '40'))
+        self.low_conf_gap = float(os.getenv('PAGEINDEX_LOW_CONF_GAP', '1.2'))
+        self.low_conf_top1 = float(os.getenv('PAGEINDEX_LOW_CONF_TOP1', '3.5'))
+        self.expansion_probe_candidates = int(os.getenv('PAGEINDEX_EXPANSION_PROBE_CANDIDATES', '12'))
+        self.expansion_max_terms = int(os.getenv('PAGEINDEX_EXPANSION_MAX_TERMS', '6'))
+
         self._init_appwrite()
         logger.info("PageIndexService initialized")
 
@@ -387,15 +396,57 @@ JSON:"""
             raise Exception("AI generator not available for tree search")
 
         try:
-            # Build a readable version of the tree (without page texts)
-            tree_view = self._get_tree_without_pages(tree)
+            candidate_budget = self._candidate_budget(query)
+            page_texts = tree.get('_page_texts', {})
+            expanded_query = self._expand_query(query, tree, page_texts)
+            candidate_nodes = self._rank_tree_candidates(expanded_query, tree, page_texts, max_candidates=candidate_budget)
+            if not candidate_nodes:
+                logger.warning("Tree search found no candidate nodes")
+                return []
 
-            prompt = f"""Given this document structure:
-{json.dumps(tree_view, indent=2)}
+            if self._is_low_confidence(candidate_nodes):
+                logger.info("[PageIndex-Search] Low confidence rank detected. Running broad pass over full tree catalog.")
+                broad_node_ids = self._broad_tree_pass(query, tree, provider, model)
+                if broad_node_ids:
+                    broad_candidates = self._candidates_from_node_ids(broad_node_ids, tree, page_texts)
+                    candidate_nodes = self._merge_candidates(candidate_nodes, broad_candidates, limit=candidate_budget)
+                    logger.info(
+                        "[PageIndex-Search] Broad pass merged %s nodes, candidate set size=%s",
+                        len(broad_candidates),
+                        len(candidate_nodes),
+                    )
+
+            for idx, candidate in enumerate(candidate_nodes[:5], start=1):
+                logger.info(
+                    "[PageIndex-Search] Candidate %s: id=%s title=%s pages=%s-%s score=%.3f",
+                    idx,
+                    candidate.get('node_id'),
+                    candidate.get('title', '')[:80],
+                    candidate.get('start_index'),
+                    candidate.get('end_index'),
+                    candidate.get('score', 0.0),
+                )
+
+            # Keep LLM context focused: only top-ranked candidates, not full tree.
+            candidate_payload = [
+                {
+                    'node_id': c['node_id'],
+                    'title': c['title'],
+                    'start_index': c['start_index'],
+                    'end_index': c['end_index'],
+                    'summary': c['summary'],
+                    'preview': c['preview'],
+                    'score_hint': round(c['score'], 3)
+                }
+                for c in candidate_nodes
+            ]
+
+            prompt = f"""Given these candidate sections from a document tree:
+{json.dumps(candidate_payload, indent=2)}
 
 Query: {query}
 
-Analyze the tree structure and identify which sections are most relevant to answer this query.
+Analyze the candidate sections and identify which are most relevant to answer this query.
 
 Return a JSON object with:
 {{
@@ -409,10 +460,11 @@ Return a JSON object with:
 }}
 
 Rules:
-1. Select the MOST specific sections that answer the query
-2. Prefer leaf/deeper nodes over broad parent nodes
-3. Select 1-3 most relevant sections
-4. Return ONLY valid JSON
+1. Select the MOST specific sections that answer the query.
+2. Prefer leaf/deeper nodes over broad parent nodes when both are relevant.
+3. Prioritize sections whose preview/summary directly discusses the query terms.
+4. Select 1-3 most relevant sections.
+5. Return ONLY valid JSON.
 
 JSON:"""
 
@@ -423,27 +475,46 @@ JSON:"""
 
             result = self._parse_json_response(response)
             if not result or 'relevant_nodes' not in result:
-                logger.warning("Tree search returned no relevant nodes")
-                return []
+                logger.warning("Tree search LLM returned no relevant nodes; using ranked fallback")
+                return self._build_relevant_info(candidate_nodes[:3])
+
+            candidate_map = {c['node_id']: c for c in candidate_nodes}
 
             # Extract page ranges for relevant nodes
             relevant_info = []
             for node_info in result['relevant_nodes']:
-                node_id = node_info.get('node_id')
-                pages = self._get_pages_for_node(node_id, tree)
-                if pages:
+                node_id = str(node_info.get('node_id', '')).strip()
+                candidate = candidate_map.get(node_id)
+                if candidate:
                     relevant_info.append({
                         'node_id': node_id,
-                        'title': node_info.get('title', ''),
+                        'title': node_info.get('title', '') or candidate['title'],
                         'reason': node_info.get('reason', ''),
-                        'pages': pages
+                        'pages': candidate['pages']
                     })
 
-            return relevant_info
+            if not relevant_info:
+                logger.warning("Tree search LLM node IDs did not match candidates; using ranked fallback")
+                return self._build_relevant_info(candidate_nodes[:3])
+
+            # Keep only unique sections while preserving order.
+            deduped = []
+            seen = set()
+            for section in relevant_info:
+                node_id = section['node_id']
+                if node_id in seen:
+                    continue
+                seen.add(node_id)
+                deduped.append(section)
+
+            logger.info("[PageIndex-Search] LLM selected %s nodes", len(deduped))
+            return deduped[:3]
 
         except Exception as e:
             logger.error(f"Tree search failed: {e}")
-            return []
+            fallback_budget = min(self.base_candidates, 3)
+            fallback_candidates = self._rank_tree_candidates(query, tree, tree.get('_page_texts', {}), max_candidates=fallback_budget)
+            return self._build_relevant_info(fallback_candidates)
 
     def generate_answer_from_tree(self, query, tree, pdf_id, pdf_name,
                                    provider='groq', model=None):
@@ -641,6 +712,287 @@ ANSWER:"""
         """Return tree structure without the _page_texts field."""
         cleaned = {k: v for k, v in tree.items() if k != '_page_texts'}
         return cleaned
+
+    def _tokenize_query(self, text):
+        """Tokenize text for lightweight lexical matching."""
+        if not text:
+            return []
+
+        stopwords = {
+            'the', 'and', 'for', 'with', 'that', 'this', 'what', 'from', 'into',
+            'about', 'your', 'you', 'are', 'was', 'were', 'how', 'why', 'who',
+            'when', 'where', 'which', 'term', 'means', 'meaning', 'example', 'examples',
+            'please', 'explain', 'tell', 'me', 'of', 'to', 'in', 'on', 'a', 'an', 'is'
+        }
+
+        tokens = re.findall(r"[a-zA-Z0-9]+", text.lower())
+        return [t for t in tokens if len(t) >= 3 and t not in stopwords]
+
+    def _expand_query(self, query, tree, page_texts):
+        """Expand query using document-adaptive pseudo-relevance feedback (no domain hardcoding)."""
+        if not query:
+            return ''
+
+        base_query = query.strip()
+        query_tokens = set(self._tokenize_query(base_query))
+        if not query_tokens:
+            return base_query
+
+        # Probe likely relevant nodes using the original query, then mine frequent terms from them.
+        probe_candidates = self._rank_tree_candidates(
+            base_query,
+            tree,
+            page_texts,
+            max_candidates=max(1, self.expansion_probe_candidates),
+        )
+
+        if not probe_candidates:
+            return base_query
+
+        token_counts = {}
+        for candidate in probe_candidates:
+            candidate_text = " ".join([
+                candidate.get('title', ''),
+                candidate.get('summary', ''),
+                candidate.get('preview', ''),
+            ])
+            for token in self._tokenize_query(candidate_text):
+                if token in query_tokens:
+                    continue
+                token_counts[token] = token_counts.get(token, 0) + 1
+
+        if not token_counts:
+            return base_query
+
+        ranked_terms = sorted(token_counts.items(), key=lambda x: (-x[1], x[0]))
+        feedback_terms = [term for term, _ in ranked_terms[: max(0, self.expansion_max_terms)]]
+
+        if not feedback_terms:
+            return base_query
+
+        expanded_query = base_query + " " + " ".join(feedback_terms)
+        logger.info("[PageIndex-Search] Expanded query with feedback terms: %s", feedback_terms)
+        return expanded_query
+
+    def _candidate_budget(self, query):
+        """Pick candidate budget based on query complexity."""
+        tokens = self._tokenize_query(query)
+        query_lower = (query or '').lower()
+        complexity_hints = ['compare', 'difference', 'workflow', 'architecture', 'end-to-end', 'orchestration']
+        is_complex = len(tokens) >= 8 or any(h in query_lower for h in complexity_hints)
+        return self.max_candidates if is_complex else self.base_candidates
+
+    def _is_low_confidence(self, ranked_candidates):
+        """Detect uncertain lexical ranking and trigger broad reasoning pass."""
+        if not ranked_candidates:
+            return True
+
+        top1 = float(ranked_candidates[0].get('score', 0.0))
+        top2 = float(ranked_candidates[1].get('score', 0.0)) if len(ranked_candidates) > 1 else 0.0
+        gap = top1 - top2
+
+        return top1 < self.low_conf_top1 or gap < self.low_conf_gap
+
+    def _broad_tree_pass(self, query, tree, provider, model):
+        """Run one global reasoning pass over compact tree catalog for recall rescue."""
+        if not self.ai_generator:
+            return []
+
+        all_nodes = self._flatten_tree_nodes(tree)
+        if not all_nodes:
+            return []
+
+        compact_catalog = []
+        for node in all_nodes[:200]:
+            compact_catalog.append({
+                'node_id': node.get('node_id'),
+                'title': node.get('title', ''),
+                'summary': node.get('summary', '')[:250],
+                'start_index': node.get('start_index'),
+                'end_index': node.get('end_index'),
+                'depth': node.get('depth', 0),
+            })
+
+        prompt = f"""You are selecting relevant nodes from a document tree catalog.
+
+Query: {query}
+
+Tree catalog:
+{json.dumps(compact_catalog, indent=2)}
+
+Return valid JSON only:
+{{
+  "relevant_nodes": [
+    {{
+      "node_id": "0001",
+      "reason": "why it is relevant"
+    }}
+  ]
+}}
+
+Rules:
+1. Return 1-5 node_ids.
+2. Prefer specific/deep nodes when possible.
+3. Do not include node_ids that are not in the catalog.
+"""
+
+        try:
+            response = self.ai_generator._call_llm(
+                prompt,
+                provider=provider,
+                model=model,
+                max_tokens=900,
+                temperature=0.1,
+            )
+            parsed = self._parse_json_response(response) or {}
+            node_ids = []
+            for item in parsed.get('relevant_nodes', []):
+                node_id = str(item.get('node_id', '')).strip()
+                if node_id:
+                    node_ids.append(node_id)
+            return list(dict.fromkeys(node_ids))
+        except Exception as e:
+            logger.warning(f"[PageIndex-Search] Broad pass failed: {e}")
+            return []
+
+    def _candidates_from_node_ids(self, node_ids, tree, page_texts):
+        """Materialize candidate entries from node IDs with neutral but non-zero score."""
+        if not node_ids:
+            return []
+
+        node_map = {n.get('node_id'): n for n in self._flatten_tree_nodes(tree)}
+        candidates = []
+        for node_id in node_ids:
+            node = node_map.get(node_id)
+            if not node:
+                continue
+
+            preview = self._node_preview_text(node.get('pages', []), page_texts)
+            candidates.append({
+                **node,
+                'preview': preview[:300],
+                'score': 0.5,
+            })
+
+        return candidates
+
+    def _merge_candidates(self, ranked_candidates, broad_candidates, limit):
+        """Merge lexical and broad-pass candidates while preserving lexical order preference."""
+        merged = {c.get('node_id'): c for c in ranked_candidates if c.get('node_id')}
+
+        for candidate in broad_candidates:
+            node_id = candidate.get('node_id')
+            if not node_id:
+                continue
+            if node_id not in merged:
+                merged[node_id] = candidate
+
+        merged_list = list(merged.values())
+        merged_list.sort(key=lambda x: float(x.get('score', 0.0)), reverse=True)
+        return merged_list[:limit]
+
+    def _flatten_tree_nodes(self, tree):
+        """Flatten tree into a list of nodes with page ranges and metadata."""
+        flat = []
+
+        def walk(nodes, depth=0):
+            for node in nodes or []:
+                start = int(node.get('start_index', 1) or 1)
+                end = int(node.get('end_index', start) or start)
+                if end < start:
+                    end = start
+
+                pages = list(range(start, end + 1))
+                flat.append({
+                    'node_id': str(node.get('node_id', '')).strip(),
+                    'title': str(node.get('title', '')).strip(),
+                    'summary': str(node.get('summary', '')).strip(),
+                    'start_index': start,
+                    'end_index': end,
+                    'pages': pages,
+                    'depth': depth,
+                })
+                walk(node.get('nodes', []), depth + 1)
+
+        walk(tree.get('nodes', []), depth=0)
+        return [n for n in flat if n['node_id']]
+
+    def _node_preview_text(self, pages, page_texts, max_chars=600):
+        """Collect a bounded text preview from node pages for relevance scoring."""
+        collected = []
+        total = 0
+        for page in pages[:4]:
+            text = (page_texts.get(str(page)) or '').strip()
+            if not text:
+                continue
+            remaining = max_chars - total
+            if remaining <= 0:
+                break
+            snippet = text[:remaining]
+            collected.append(snippet)
+            total += len(snippet)
+            if total >= max_chars:
+                break
+
+        return "\n".join(collected)
+
+    def _rank_tree_candidates(self, query, tree, page_texts, max_candidates=20):
+        """Rank tree nodes with lexical + structure signals before LLM selection."""
+        query_tokens = self._tokenize_query(query)
+        if not query_tokens:
+            query_tokens = self._tokenize_query(query.lower())
+
+        flattened = self._flatten_tree_nodes(tree)
+        if not flattened:
+            return []
+
+        ranked = []
+        query_lower = query.lower()
+
+        for node in flattened:
+            preview = self._node_preview_text(node['pages'], page_texts)
+            haystack = " ".join([
+                node.get('title', ''),
+                node.get('summary', ''),
+                preview
+            ]).lower()
+
+            token_hits = sum(1 for t in query_tokens if t in haystack)
+            phrase_hit = 1 if query_lower in haystack else 0
+            page_span = max(1, (node['end_index'] - node['start_index'] + 1))
+            specificity_bonus = 1.0 / page_span
+            depth_bonus = 0.15 * node.get('depth', 0)
+
+            score = (2.2 * token_hits) + (3.0 * phrase_hit) + specificity_bonus + depth_bonus
+
+            ranked.append({
+                **node,
+                'preview': preview[:300],
+                'score': score,
+            })
+
+        ranked.sort(key=lambda x: x['score'], reverse=True)
+
+        # If everything scored zero, still keep small set to let LLM reason.
+        if ranked and ranked[0]['score'] <= 0:
+            return ranked[: min(max_candidates, 8)]
+
+        return ranked[:max_candidates]
+
+    def _build_relevant_info(self, candidates):
+        """Convert ranked candidates to the response schema used by answer generation."""
+        relevant = []
+        for c in candidates:
+            pages = c.get('pages') or []
+            if not pages:
+                continue
+            relevant.append({
+                'node_id': c.get('node_id', ''),
+                'title': c.get('title', ''),
+                'reason': 'Selected via relevance fallback ranking',
+                'pages': pages,
+            })
+        return relevant
 
     def _get_pages_for_node(self, node_id, tree):
         """Extract page range for a given node_id from the tree."""
