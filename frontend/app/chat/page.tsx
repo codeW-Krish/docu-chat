@@ -147,7 +147,7 @@ export default function ChatPage() {
   return (
     <div className="h-screen bg-[#FAFAFA] dark:bg-[#050505] flex flex-col overflow-hidden text-zinc-900 dark:text-white" style={{ fontFamily: 'var(--font-plus-jakarta), "Plus Jakarta Sans", sans-serif' }}>
       {/* Header Section */}
-      <div className="p-6 border-b border-zinc-200 dark:border-white/10 bg-white/80 dark:bg-[#0A0A0A]/80 backdrop-blur-md z-10 shadow-sm">
+      <div className="p-6 border-b border-zinc-200 dark:border-white/10 bg-white/80 dark:bg-[#0A0A0A]/80 backdrop-blur-md z-10 shadow-sm flex-shrink-0">
         <div className="max-w-6xl mx-auto w-full">
           <h1 className="text-3xl font-extrabold mb-2 flex items-center gap-3 text-zinc-900 dark:text-white tracking-tight">
             <div className="p-2 rounded-lg bg-lime-accent/10">
@@ -162,12 +162,12 @@ export default function ChatPage() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-hidden">
-        <div className="max-w-6xl mx-auto w-full h-full p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+      <div className="flex-1 overflow-y-auto lg:overflow-hidden custom-scrollbar">
+        <div className="max-w-6xl mx-auto w-full min-h-full lg:h-full lg:flex lg:flex-col p-4 lg:p-6 pb-20 lg:pb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:flex-1 lg:min-h-0">
 
             {/* Document Selection Column */}
-            <div className="lg:col-span-2 h-full flex flex-col min-h-0">
+            <div className="lg:col-span-2 h-[450px] lg:h-full flex flex-col min-h-0">
               <div className="flex-1 flex flex-col min-h-0 shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 overflow-hidden">
                 <div className="p-6 pb-4 border-b border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/[0.02]">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -258,8 +258,8 @@ export default function ChatPage() {
             </div>
 
             {/* Session Details Column */}
-            <div className="lg:col-span-1 h-full flex flex-col gap-6 min-h-0">
-              <div className="shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 overflow-hidden flex flex-col flex-shrink-0">
+            <div className="lg:col-span-1 lg:h-full flex flex-col gap-6 lg:min-h-0">
+              <div className="shadow-[0_2px_20px_-8px_rgba(0,0,0,0.05)] dark:shadow-none bg-white dark:bg-[#0A0A0A] rounded-2xl border border-zinc-200 dark:border-white/10 overflow-hidden flex flex-col flex-1 min-h-0">
                 <div className="p-6 pb-4 border-b border-zinc-100 dark:border-white/5 bg-zinc-50/50 dark:bg-white/[0.02]">
                   <h2 className="text-lg font-bold text-zinc-900 dark:text-white">Session Details</h2>
                 </div>

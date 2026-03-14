@@ -539,6 +539,9 @@ class PdfController extends BaseController
         try {
             log_message('info', '[TreeGen-PHP] === GENERATE TREE REQUEST START ===');
             $data = $this->request->getJSON(true);
+            if (!is_array($data)) {
+                $data = [];
+            }
             $userId = $this->request->user->user_id;
             $pdfId = $data['pdf_id'] ?? null;
             $provider = $data['provider'] ?? null;
@@ -563,10 +566,13 @@ class PdfController extends BaseController
                     'message' => 'PDF not found or access denied'
                 ])->setStatusCode(404);
             }
-            log_message('info', '[TreeGen-PHP] PDF ownership verified: ' . ($pdf['file_name'] ?? 'unknown'));
+            log_message('info', '[TreeGen-PHP] PDF ownership verified: ' . ($pdf->file_name ?? 'unknown'));
+
+            // Set status early so frontend can reflect work-in-progress immediately.
+            $this->pdfModel->update($pdfId, ['tree_status' => 'generating']);
 
             // Call Python service to generate tree
-            $pythonServerUrl = getenv('PYTHON_SERVER_URL') ?: 'http://localhost:5000';
+            $pythonServerUrl = $this->resolvePythonServerUrl();
             $targetUrl = $pythonServerUrl . '/generate-tree';
 
             $postData = json_encode([
@@ -602,12 +608,26 @@ class PdfController extends BaseController
                 log_message('error', '[TreeGen-PHP] cURL error: ' . $error);
             }
 
+            if ($response === false) {
+                throw new \Exception('Could not reach AI tree service at ' . $targetUrl . '. cURL error: ' . ($error ?: 'unknown'));
+            }
+
             if ($httpCode !== 200) {
+                $pythonError = 'AI server error during tree generation';
+                $pythonResult = json_decode($response, true);
+                if (is_array($pythonResult)) {
+                    $pythonError = $pythonResult['message'] ?? $pythonResult['error'] ?? $pythonError;
+                }
+
                 log_message('error', '[TreeGen-PHP] FAILED: Python returned HTTP ' . $httpCode . ' | error: ' . $error . ' | response: ' . $response);
-                throw new \Exception('AI server error during tree generation (HTTP ' . $httpCode . ')');
+                throw new \Exception($pythonError . ' (HTTP ' . $httpCode . ')');
             }
 
             $result = json_decode($response, true);
+            if (!is_array($result)) {
+                throw new \Exception('AI tree service returned invalid JSON response');
+            }
+
             log_message('info', '[TreeGen-PHP] Parsed result status: ' . ($result['status'] ?? 'null') . ' | tree_file_id: ' . ($result['tree_file_id'] ?? 'null'));
 
             $finalResponse = [
@@ -623,12 +643,27 @@ class PdfController extends BaseController
             return $this->response->setJSON($finalResponse);
 
         } catch (\Exception $e) {
+            if (!empty($pdfId ?? null)) {
+                $this->pdfModel->update($pdfId, ['tree_status' => 'failed']);
+            }
+
             log_message('error', '[TreeGen-PHP] EXCEPTION: ' . $e->getMessage());
             return $this->response->setJSON([
                 'status' => 'error',
                 'message' => 'Failed to generate tree: ' . $e->getMessage()
             ])->setStatusCode(500);
         }
+    }
+
+    private function resolvePythonServerUrl(): string
+    {
+        $configured = trim((string) getenv('PYTHON_SERVER_URL'));
+        if ($configured !== '') {
+            return rtrim($configured, '/');
+        }
+
+        // 7860 is commonly used by hosted Flask environments (e.g., Spaces).
+        return 'http://localhost:7860';
     }
 
     public function viewPdf($pdfId)
@@ -707,7 +742,7 @@ class PdfController extends BaseController
         );
     }
     public function testPythonQuick(){
-        $pythonServerUrl = getenv('PYTHON_SERVER_URL') ?: 'http://localhost:5000';
+        $pythonServerUrl = $this->resolvePythonServerUrl();
         
         $ch = curl_init();
         curl_setopt_array($ch, [
