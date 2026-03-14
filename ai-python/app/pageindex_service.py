@@ -396,13 +396,60 @@ JSON:"""
             raise Exception("AI generator not available for tree search")
 
         try:
-            candidate_budget = self._candidate_budget(query)
             page_texts = tree.get('_page_texts', {})
-            expanded_query = self._expand_query(query, tree, page_texts)
-            candidate_nodes = self._rank_tree_candidates(expanded_query, tree, page_texts, max_candidates=candidate_budget)
+            query_shape = self._analyze_query_shape(query)
+            probe_budget = min(self.base_candidates, self.max_candidates)
+
+            probe_candidates = self._rank_tree_candidates(
+                query,
+                tree,
+                page_texts,
+                max_candidates=probe_budget,
+            )
+
+            if not probe_candidates:
+                logger.warning("Tree search found no probe candidates")
+                return []
+
+            expanded_query = self._expand_query(query, probe_candidates)
+            if expanded_query != query:
+                probe_candidates = self._rank_tree_candidates(
+                    expanded_query,
+                    tree,
+                    page_texts,
+                    max_candidates=probe_budget,
+                )
+
+            candidate_budget = self._candidate_budget(
+                query_shape,
+                self._analyze_ranking_distribution(probe_candidates),
+                self._analyze_tree_structure(tree, probe_candidates),
+            )
+
+            if candidate_budget > len(probe_candidates):
+                candidate_nodes = self._rank_tree_candidates(
+                    expanded_query,
+                    tree,
+                    page_texts,
+                    max_candidates=candidate_budget,
+                )
+            else:
+                candidate_nodes = probe_candidates[:candidate_budget]
+
             if not candidate_nodes:
                 logger.warning("Tree search found no candidate nodes")
                 return []
+
+            ranking_stats = self._analyze_ranking_distribution(candidate_nodes)
+            tree_stats = self._analyze_tree_structure(tree, candidate_nodes)
+            logger.info(
+                "[PageIndex-Search] Adaptive budget probe=%s final=%s query_shape=%s ranking=%s tree=%s",
+                probe_budget,
+                candidate_budget,
+                query_shape,
+                ranking_stats,
+                tree_stats,
+            )
 
             if self._is_low_confidence(candidate_nodes):
                 logger.info("[PageIndex-Search] Low confidence rank detected. Running broad pass over full tree catalog.")
@@ -728,7 +775,36 @@ ANSWER:"""
         tokens = re.findall(r"[a-zA-Z0-9]+", text.lower())
         return [t for t in tokens if len(t) >= 3 and t not in stopwords]
 
-    def _expand_query(self, query, tree, page_texts):
+    def _analyze_query_shape(self, query):
+        """Extract generic linguistic signals from the query without domain assumptions."""
+        query_text = (query or '').strip()
+        query_lower = query_text.lower()
+        tokens = self._tokenize_query(query_text)
+
+        conjunction_count = len(re.findall(r"\b(?:and|or)\b", query_lower))
+        comparison_count = len(re.findall(r"\b(?:vs\.?|versus|compare|compared|difference|different|contrast)\b", query_lower))
+        clause_parts = re.split(r"[?;:]|\b(?:and|or|because|while|whereas|then)\b", query_lower)
+        clause_count = len([part for part in clause_parts if self._tokenize_query(part)])
+
+        question_type = 'other'
+        if re.match(r"^\s*what\b", query_lower):
+            question_type = 'definition'
+        elif re.match(r"^\s*how\b", query_lower):
+            question_type = 'procedure'
+        elif re.match(r"^\s*why\b", query_lower):
+            question_type = 'causal'
+        elif comparison_count > 0:
+            question_type = 'comparison'
+
+        return {
+            'token_count': len(tokens),
+            'conjunction_count': conjunction_count,
+            'comparison_count': comparison_count,
+            'clause_count': max(1, clause_count),
+            'question_type': question_type,
+        }
+
+    def _expand_query(self, query, probe_candidates):
         """Expand query using document-adaptive pseudo-relevance feedback (no domain hardcoding)."""
         if not query:
             return ''
@@ -737,14 +813,6 @@ ANSWER:"""
         query_tokens = set(self._tokenize_query(base_query))
         if not query_tokens:
             return base_query
-
-        # Probe likely relevant nodes using the original query, then mine frequent terms from them.
-        probe_candidates = self._rank_tree_candidates(
-            base_query,
-            tree,
-            page_texts,
-            max_candidates=max(1, self.expansion_probe_candidates),
-        )
 
         if not probe_candidates:
             return base_query
@@ -774,13 +842,92 @@ ANSWER:"""
         logger.info("[PageIndex-Search] Expanded query with feedback terms: %s", feedback_terms)
         return expanded_query
 
-    def _candidate_budget(self, query):
-        """Pick candidate budget based on query complexity."""
-        tokens = self._tokenize_query(query)
-        query_lower = (query or '').lower()
-        complexity_hints = ['compare', 'difference', 'workflow', 'architecture', 'end-to-end', 'orchestration']
-        is_complex = len(tokens) >= 8 or any(h in query_lower for h in complexity_hints)
-        return self.max_candidates if is_complex else self.base_candidates
+    def _analyze_ranking_distribution(self, ranked_candidates):
+        """Summarize how sharp or diffuse the first-pass ranking is."""
+        if not ranked_candidates:
+            return {
+                'top1_score': 0.0,
+                'top2_score': 0.0,
+                'gap': 0.0,
+                'relative_gap': 0.0,
+                'top1_share': 0.0,
+                'non_zero_top10': 0,
+            }
+
+        top_slice = ranked_candidates[:10]
+        scores = [float(candidate.get('score', 0.0)) for candidate in top_slice]
+        top1_score = scores[0] if scores else 0.0
+        top2_score = scores[1] if len(scores) > 1 else 0.0
+        gap = top1_score - top2_score
+        relative_gap = gap / max(top1_score, 1.0)
+        top1_share = top1_score / max(sum(scores[:5]), 1.0)
+        non_zero_top10 = sum(1 for score in scores if score > 0)
+
+        return {
+            'top1_score': round(top1_score, 3),
+            'top2_score': round(top2_score, 3),
+            'gap': round(gap, 3),
+            'relative_gap': round(relative_gap, 3),
+            'top1_share': round(top1_share, 3),
+            'non_zero_top10': non_zero_top10,
+        }
+
+    def _analyze_tree_structure(self, tree, ranked_candidates):
+        """Summarize tree topology and top-candidate page dispersion for adaptive budgeting."""
+        flattened = self._flatten_tree_nodes(tree)
+        node_count = len(flattened)
+        max_depth = max((node.get('depth', 0) for node in flattened), default=0)
+
+        top_candidates = ranked_candidates[:5]
+        top_starts = [int(candidate.get('start_index', 1) or 1) for candidate in top_candidates]
+        top_page_dispersion = (max(top_starts) - min(top_starts)) if len(top_starts) > 1 else 0
+
+        return {
+            'node_count': node_count,
+            'max_depth': max_depth,
+            'top_page_dispersion': top_page_dispersion,
+        }
+
+    def _candidate_budget(self, query_shape, ranking_stats, tree_stats):
+        """Compute candidate budget from query shape and first-pass retrieval evidence."""
+        budget = self.base_candidates
+
+        token_count = query_shape.get('token_count', 0)
+        clause_count = query_shape.get('clause_count', 1)
+        conjunction_count = query_shape.get('conjunction_count', 0)
+        comparison_count = query_shape.get('comparison_count', 0)
+
+        if token_count >= 10:
+            budget += 6
+        elif token_count >= 6:
+            budget += 3
+
+        if clause_count >= 3:
+            budget += 6
+        elif clause_count == 2:
+            budget += 3
+
+        if conjunction_count > 0:
+            budget += 2
+
+        if comparison_count > 0:
+            budget += 4
+
+        if ranking_stats.get('non_zero_top10', 0) >= 8 and ranking_stats.get('top1_share', 1.0) < 0.38:
+            budget += 6
+        elif ranking_stats.get('relative_gap', 1.0) < 0.12:
+            budget += 4
+
+        top_page_dispersion = tree_stats.get('top_page_dispersion', 0)
+        if top_page_dispersion >= 100:
+            budget += 8
+        elif top_page_dispersion >= 50:
+            budget += 5
+
+        if tree_stats.get('node_count', 0) > 60 and tree_stats.get('max_depth', 0) >= 4:
+            budget += 2
+
+        return max(self.base_candidates, min(int(budget), self.max_candidates))
 
     def _is_low_confidence(self, ranked_candidates):
         """Detect uncertain lexical ranking and trigger broad reasoning pass."""
