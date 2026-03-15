@@ -215,21 +215,21 @@ export function ManageSessionPdfs({ sessionId, currentPdfs, onUpdate }: ManageSe
                                         pdfsToAdd.map((pdf) => (
                                             <div
                                                 key={pdf.pdf_id}
-                                                className="group flex items-center justify-between gap-3 p-2.5 rounded-lg bg-background border border-transparent hover:border-primary/20 hover:shadow-sm transition-all duration-200"
+                                                className="group flex flex-col gap-3 p-2.5 rounded-lg bg-background border border-transparent hover:border-primary/20 hover:shadow-sm transition-all duration-200 sm:flex-row sm:items-center sm:justify-between"
                                             >
                                                 <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                                                     <div className="p-2 bg-muted/50 rounded-md group-hover:bg-primary/10 transition-colors">
                                                         {getFileIcon(pdf.file_name)}
                                                     </div>
                                                     <div className="flex flex-col min-w-0">
-                                                        <span className="text-sm font-medium truncate text-foreground/90" title={pdf.file_name}>{pdf.file_name}</span>
+                                                        <span className="block text-sm font-medium truncate text-foreground/90" title={pdf.file_name}>{pdf.file_name}</span>
                                                         <span className="text-xs text-muted-foreground">{pdf.page_count || "?"} pages</span>
                                                     </div>
                                                 </div>
                                                 <Button
                                                     size="sm"
-                                                    variant="secondary"
-                                                    className="h-8 shrink-0 gap-1.5 px-3 font-medium whitespace-nowrap hover:bg-primary hover:text-primary-foreground transition-colors"
+                                                    variant="default"
+                                                    className="h-8 w-full shrink-0 gap-1.5 px-3 font-medium whitespace-nowrap sm:w-auto"
                                                     onClick={() => handleAddPdf(pdf.pdf_id)}
                                                     aria-label={`Add ${pdf.file_name} to session`}
                                                     disabled={addingPdfId === pdf.pdf_id}
