@@ -27,6 +27,8 @@ export function ManageSessionPdfs({ sessionId, currentPdfs, onUpdate }: ManageSe
     const [isOpen, setIsOpen] = useState(false);
     const [availablePdfs, setAvailablePdfs] = useState<PdfFile[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [addingPdfId, setAddingPdfId] = useState<string | null>(null);
+    const [removingPdfId, setRemovingPdfId] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
     const { toast } = useToast();
 
@@ -54,6 +56,7 @@ export function ManageSessionPdfs({ sessionId, currentPdfs, onUpdate }: ManageSe
     };
 
     const handleAddPdf = async (pdfId: string) => {
+        setAddingPdfId(pdfId);
         try {
             await api.addPdfToSession(sessionId, [pdfId]);
             toast({
@@ -68,10 +71,13 @@ export function ManageSessionPdfs({ sessionId, currentPdfs, onUpdate }: ManageSe
                 description: "Failed to add document to session.",
                 variant: "destructive",
             });
+        } finally {
+            setAddingPdfId(null);
         }
     };
 
     const handleRemovePdf = async (pdfId: string) => {
+        setRemovingPdfId(pdfId);
         try {
             await api.removePdfFromSession(sessionId, pdfId);
             toast({
@@ -86,6 +92,8 @@ export function ManageSessionPdfs({ sessionId, currentPdfs, onUpdate }: ManageSe
                 description: "Failed to remove document from session.",
                 variant: "destructive",
             });
+        } finally {
+            setRemovingPdfId(null);
         }
     };
 
@@ -156,10 +164,16 @@ export function ManageSessionPdfs({ sessionId, currentPdfs, onUpdate }: ManageSe
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
+                                                    className="h-8 w-8 shrink-0 text-muted-foreground/80 hover:text-destructive hover:bg-destructive/10 focus-visible:text-destructive focus-visible:bg-destructive/10 transition-colors"
                                                     onClick={() => handleRemovePdf(pdf.pdf_id)}
+                                                    aria-label={`Remove ${pdf.file_name} from session`}
+                                                    disabled={removingPdfId === pdf.pdf_id}
                                                 >
-                                                    <Trash2 className="h-4 w-4" />
+                                                    {removingPdfId === pdf.pdf_id ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        <Trash2 className="h-4 w-4" />
+                                                    )}
                                                 </Button>
                                             </div>
                                         ))
@@ -201,25 +215,31 @@ export function ManageSessionPdfs({ sessionId, currentPdfs, onUpdate }: ManageSe
                                         pdfsToAdd.map((pdf) => (
                                             <div
                                                 key={pdf.pdf_id}
-                                                className="group flex items-center justify-between p-2.5 rounded-lg bg-background border border-transparent hover:border-primary/20 hover:shadow-sm transition-all duration-200"
+                                                className="group flex items-center justify-between gap-3 p-2.5 rounded-lg bg-background border border-transparent hover:border-primary/20 hover:shadow-sm transition-all duration-200"
                                             >
-                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                                                     <div className="p-2 bg-muted/50 rounded-md group-hover:bg-primary/10 transition-colors">
                                                         {getFileIcon(pdf.file_name)}
                                                     </div>
                                                     <div className="flex flex-col min-w-0">
-                                                        <span className="text-sm font-medium truncate text-foreground/90">{pdf.file_name}</span>
+                                                        <span className="text-sm font-medium truncate text-foreground/90" title={pdf.file_name}>{pdf.file_name}</span>
                                                         <span className="text-xs text-muted-foreground">{pdf.page_count || "?"} pages</span>
                                                     </div>
                                                 </div>
                                                 <Button
                                                     size="sm"
                                                     variant="secondary"
-                                                    className="h-8 gap-1.5 font-medium hover:bg-primary hover:text-primary-foreground transition-colors"
+                                                    className="h-8 shrink-0 gap-1.5 px-3 font-medium whitespace-nowrap hover:bg-primary hover:text-primary-foreground transition-colors"
                                                     onClick={() => handleAddPdf(pdf.pdf_id)}
+                                                    aria-label={`Add ${pdf.file_name} to session`}
+                                                    disabled={addingPdfId === pdf.pdf_id}
                                                 >
-                                                    <Plus className="h-3.5 w-3.5" />
-                                                    Add
+                                                    {addingPdfId === pdf.pdf_id ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Plus className="h-3.5 w-3.5" />
+                                                    )}
+                                                    {addingPdfId === pdf.pdf_id ? "Adding" : "Add"}
                                                 </Button>
                                             </div>
                                         ))

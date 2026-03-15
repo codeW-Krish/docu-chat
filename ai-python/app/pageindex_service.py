@@ -45,6 +45,15 @@ class PageIndexService:
         self.tree_overview_max_pages = int(os.getenv('PAGEINDEX_TREE_OVERVIEW_MAX_PAGES', '90'))
         self.precision_core_max_tokens = int(os.getenv('PAGEINDEX_PRECISION_CORE_MAX_TOKENS', '3'))
         self.precision_min_grounding_score = float(os.getenv('PAGEINDEX_PRECISION_MIN_GROUNDING_SCORE', '1.0'))
+        self.outline_route_top_k = int(os.getenv('PAGEINDEX_OUTLINE_ROUTE_TOP_K', '2'))
+        self.outline_route_boost = float(os.getenv('PAGEINDEX_OUTLINE_ROUTE_BOOST', '1.8'))
+        self.query_hints_enabled = os.getenv('PAGEINDEX_QUERY_HINTS_ENABLED', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+        self.query_hints_min_confidence = float(os.getenv('PAGEINDEX_QUERY_HINTS_MIN_CONFIDENCE', '0.45'))
+        self.query_hints_max_alias_terms = int(os.getenv('PAGEINDEX_QUERY_HINTS_MAX_ALIASES', '3'))
+        self.query_hints_min_tokens = int(os.getenv('PAGEINDEX_QUERY_HINTS_MIN_TOKENS', '3'))
+        self.intent_terms = {
+            'explain', 'details', 'detail', 'please', 'tell'
+        }
 
         self._init_appwrite()
         logger.info("PageIndexService initialized")
@@ -131,6 +140,11 @@ class PageIndexService:
             logger.info(f"[TreeGen-SVC] Tree generated successfully! Keys: {list(tree.keys())}")
             logger.info(f"[TreeGen-SVC] Tree title: {tree.get('title', 'N/A')}")
             logger.info(f"[TreeGen-SVC] Tree top-level nodes: {len(tree.get('nodes', []))}")
+
+            doc_outline = self._build_doc_outline(tree, page_texts)
+            if doc_outline:
+                tree['_doc_outline'] = doc_outline
+                logger.info(f"[TreeGen-SVC] Added _doc_outline ({len(doc_outline)} entries)")
 
             # Add page texts to tree for later retrieval
             tree['_page_texts'] = {str(k): v for k, v in page_texts.items()}
@@ -449,11 +463,14 @@ JSON:"""
         try:
             page_texts = tree.get('_page_texts', {})
             effective_query = self._prepare_query_for_retrieval(query, conversation_history, provider, model)
-            query_shape = self._analyze_query_shape(effective_query)
+            query_profile = self._build_retrieval_query_profile(effective_query, provider, model)
+            routing_query = query_profile['routing_query']
+            profile_core_tokens = query_profile.get('core_tokens', [])
+            query_shape = self._analyze_query_shape(routing_query)
             probe_budget = min(self.base_candidates, self.max_candidates)
 
             probe_candidates = self._rank_tree_candidates(
-                effective_query,
+                routing_query,
                 tree,
                 page_texts,
                 max_candidates=probe_budget,
@@ -463,8 +480,8 @@ JSON:"""
                 logger.warning("Tree search found no probe candidates")
                 return []
 
-            expanded_query = self._expand_query(effective_query, probe_candidates)
-            if expanded_query != effective_query:
+            expanded_query = self._expand_query(routing_query, probe_candidates)
+            if expanded_query != routing_query:
                 probe_candidates = self._rank_tree_candidates(
                     expanded_query,
                     tree,
@@ -491,6 +508,15 @@ JSON:"""
             if not candidate_nodes:
                 logger.warning("Tree search found no candidate nodes")
                 return []
+
+            routed_outline_entries = self._route_outline_entries(routing_query, tree)
+            if routed_outline_entries:
+                candidate_nodes = self._apply_outline_routing_boost(candidate_nodes, routed_outline_entries)
+                logger.info(
+                    "[PageIndex-Search] Outline routing entries=%s titles=%s",
+                    len(routed_outline_entries),
+                    [e.get('title', '')[:60] for e in routed_outline_entries],
+                )
 
             ranking_stats = self._analyze_ranking_distribution(candidate_nodes)
             tree_stats = self._analyze_tree_structure(tree, candidate_nodes)
@@ -530,6 +556,9 @@ JSON:"""
                         len(candidate_nodes),
                     )
 
+                if routed_outline_entries:
+                    candidate_nodes = self._apply_outline_routing_boost(candidate_nodes, routed_outline_entries)
+
             for idx, candidate in enumerate(candidate_nodes[:5], start=1):
                 logger.info(
                     "[PageIndex-Search] Candidate %s: id=%s title=%s pages=%s-%s score=%.3f",
@@ -543,10 +572,12 @@ JSON:"""
 
             guarded_candidates, grounding_scores, grounded_candidates, core_tokens = self._apply_precision_guard(
                 candidate_nodes,
-                effective_query,
+                routing_query,
+                profile_core_tokens,
             )
 
             # Keep LLM context focused: only top-ranked candidates, not full tree.
+            valid_node_ids = [str(c.get('node_id', '')).strip() for c in guarded_candidates if c.get('node_id')]
             candidate_payload = [
                 {
                     'node_id': c['node_id'],
@@ -564,6 +595,7 @@ JSON:"""
 {json.dumps(candidate_payload, indent=2)}
 
 Query: {effective_query}
+Valid node_ids (must choose only from these): {valid_node_ids}
 
 Analyze the candidate sections and identify which are most relevant to answer this query.
 
@@ -583,7 +615,8 @@ Rules:
 2. Prefer leaf/deeper nodes over broad parent nodes when both are relevant.
 3. Prioritize sections whose preview/summary directly discusses the query terms.
 4. Select 1-3 most relevant sections.
-5. Return ONLY valid JSON.
+5. node_id values MUST be exact values from Valid node_ids.
+6. Return ONLY valid JSON.
 
 JSON:"""
 
@@ -597,6 +630,15 @@ JSON:"""
                 logger.warning("Tree search LLM returned no relevant nodes; using ranked fallback")
                 fallback_candidates = grounded_candidates[:3] if grounded_candidates else guarded_candidates[:3]
                 return self._build_relevant_info(fallback_candidates)
+
+            returned_ids = [str(item.get('node_id', '')).strip() for item in result.get('relevant_nodes', []) if item.get('node_id')]
+            invalid_ids = [node_id for node_id in returned_ids if node_id not in valid_node_ids]
+            if invalid_ids:
+                logger.info(
+                    "[PageIndex-Search] LLM returned out-of-candidate node_ids=%s valid_count=%s",
+                    invalid_ids,
+                    len(valid_node_ids),
+                )
 
             relevant_info = self._resolve_llm_selected_candidates(result.get('relevant_nodes', []), guarded_candidates)
 
@@ -914,6 +956,7 @@ ANSWER:"""
     def _extract_core_query_tokens(self, query, max_tokens=3):
         """Extract a small set of high-signal query tokens for precision grounding."""
         tokens = self._tokenize_query(query)
+        tokens = [token for token in tokens if token not in self.intent_terms]
         if not tokens:
             return []
 
@@ -929,6 +972,170 @@ ANSWER:"""
         ranked = sorted(unique_tokens, key=lambda t: (-len(t), unique_tokens.index(t)))
         max_tokens = max(1, int(max_tokens or 3))
         return ranked[:max_tokens]
+
+    def _normalize_retrieval_query(self, query):
+        """Normalize query for retrieval by removing low-signal intent terms while preserving content terms."""
+        if not query:
+            return ''
+
+        query_tokens = self._tokenize_query(query)
+        filtered = [token for token in query_tokens if token not in self.intent_terms]
+        if not filtered:
+            filtered = query_tokens
+
+        normalized = " ".join(filtered).strip()
+        logger.info("[PageIndex-Search] Retrieval tokens raw=%s normalized=%s", query_tokens, filtered)
+        return normalized or query
+
+    def _should_use_query_hints(self, query):
+        """Decide whether to run the extra LLM query-understanding stage."""
+        if not self.query_hints_enabled or not self.ai_generator:
+            return False
+
+        token_count = len(self._tokenize_query(query or ''))
+        return token_count >= max(1, self.query_hints_min_tokens)
+
+    def _llm_query_understanding(self, question, provider, model):
+        """Use one LLM call to extract structured retrieval hints from the user query."""
+        if not question or not self.ai_generator:
+            return None
+
+        prompt = f"""You are a retrieval-query analyst.
+
+Question: {question}
+
+Return ONLY valid JSON with this exact schema:
+{{
+  "core_terms": ["primary content term 1", "primary content term 2"],
+  "intent_terms": ["explain", "deep dive"],
+  "aliases": ["alternate spelling or synonym"],
+  "query_type": "definition",
+  "confidence": 0.0
+}}
+
+Rules:
+1. core_terms: 1-5 concrete topic-bearing terms from the question.
+2. intent_terms: optional instruction-style words (e.g., explain, detail, deep dive).
+3. aliases: optional near-synonyms/spelling variants likely found in documents.
+4. query_type must be one of: definition, procedure, comparison, causal, other.
+5. confidence must be a float between 0 and 1.
+6. No markdown, no commentary, JSON only.
+"""
+
+        try:
+            response = self.ai_generator._call_llm(
+                prompt,
+                provider=provider,
+                model=model,
+                max_tokens=300,
+                temperature=0.0,
+            )
+            parsed = self._parse_json_response(response)
+            if not isinstance(parsed, dict):
+                return None
+
+            core_terms = parsed.get('core_terms') if isinstance(parsed.get('core_terms'), list) else []
+            intent_terms = parsed.get('intent_terms') if isinstance(parsed.get('intent_terms'), list) else []
+            aliases = parsed.get('aliases') if isinstance(parsed.get('aliases'), list) else []
+            query_type = str(parsed.get('query_type', 'other')).strip().lower() or 'other'
+            if query_type not in {'definition', 'procedure', 'comparison', 'causal', 'other'}:
+                query_type = 'other'
+
+            try:
+                confidence = float(parsed.get('confidence', 0.0))
+            except Exception:
+                confidence = 0.0
+            confidence = max(0.0, min(1.0, confidence))
+
+            return {
+                'core_terms': [str(x).strip() for x in core_terms if str(x).strip()],
+                'intent_terms': [str(x).strip() for x in intent_terms if str(x).strip()],
+                'aliases': [str(x).strip() for x in aliases if str(x).strip()],
+                'query_type': query_type,
+                'confidence': confidence,
+            }
+        except Exception as e:
+            logger.warning("[PageIndex-Search] Query hints LLM call failed: %s", e)
+            return None
+
+    def _terms_to_tokens(self, terms):
+        """Convert a list of phrase terms into deduplicated retrieval tokens."""
+        tokens = []
+        seen = set()
+        for term in terms or []:
+            for token in self._tokenize_query(str(term)):
+                if token in seen:
+                    continue
+                seen.add(token)
+                tokens.append(token)
+        return tokens
+
+    def _build_retrieval_query_profile(self, question, provider, model):
+        """Build routing query and core terms using LLM hints with deterministic fallback."""
+        raw_tokens = self._tokenize_query(question)
+        fallback_tokens = [token for token in raw_tokens if token not in self.intent_terms]
+        if not fallback_tokens:
+            fallback_tokens = raw_tokens
+
+        fallback_query = " ".join(fallback_tokens).strip() or (question or '')
+        fallback_core = fallback_tokens[: max(1, min(self.precision_core_max_tokens, len(fallback_tokens)))]
+
+        profile = {
+            'routing_query': fallback_query,
+            'core_tokens': fallback_core,
+            'source': 'fallback',
+            'confidence': 0.0,
+            'aliases': [],
+        }
+
+        if not self._should_use_query_hints(question):
+            logger.info("[PageIndex-Search] Query hints skipped. source=%s core_terms=%s", profile['source'], profile['core_tokens'])
+            return profile
+
+        hints = self._llm_query_understanding(question, provider, model)
+        if not hints:
+            logger.info("[PageIndex-Search] Query hints unavailable; fallback normalization used")
+            return profile
+
+        confidence = float(hints.get('confidence', 0.0) or 0.0)
+        if confidence < self.query_hints_min_confidence:
+            logger.info(
+                "[PageIndex-Search] Query hints low confidence=%.2f (< %.2f); fallback normalization used",
+                confidence,
+                self.query_hints_min_confidence,
+            )
+            return profile
+
+        core_tokens = self._terms_to_tokens(hints.get('core_terms', []))
+        alias_tokens = self._terms_to_tokens(hints.get('aliases', []))
+        alias_tokens = [t for t in alias_tokens if t not in core_tokens][: max(0, self.query_hints_max_alias_terms)]
+
+        retrieval_tokens = []
+        seen = set()
+        for token in core_tokens + alias_tokens:
+            if token in seen:
+                continue
+            seen.add(token)
+            retrieval_tokens.append(token)
+
+        if not retrieval_tokens:
+            return profile
+
+        profile = {
+            'routing_query': " ".join(retrieval_tokens),
+            'core_tokens': core_tokens[: max(1, self.precision_core_max_tokens)],
+            'source': 'llm',
+            'confidence': confidence,
+            'aliases': alias_tokens,
+        }
+        logger.info(
+            "[PageIndex-Search] Query hints source=%s confidence=%.2f core_terms=%s aliases=%s",
+            profile['source'],
+            profile['confidence'],
+            profile['core_tokens'],
+            profile['aliases'],
+        )
+        return profile
 
     def _candidate_grounding_score(self, candidate, core_tokens):
         """Score how strongly a candidate is lexically grounded to core query tokens."""
@@ -956,12 +1163,24 @@ ANSWER:"""
         # Title overlap is weighted highest for section-level precision.
         return (1.6 * title_score) + (1.1 * summary_score) + (1.0 * preview_score) + phrase_bonus
 
-    def _apply_precision_guard(self, candidate_nodes, effective_query):
+    def _apply_precision_guard(self, candidate_nodes, effective_query, explicit_core_tokens=None):
         """Soft precision gate: prioritize grounded candidates without hard-filtering others."""
         if not candidate_nodes:
             return [], {}, [], []
 
-        core_tokens = self._extract_core_query_tokens(effective_query, self.precision_core_max_tokens)
+        core_tokens = [str(t).strip().lower() for t in (explicit_core_tokens or []) if str(t).strip()]
+        if core_tokens:
+            deduped = []
+            seen_tokens = set()
+            for token in core_tokens:
+                if token in seen_tokens:
+                    continue
+                seen_tokens.add(token)
+                deduped.append(token)
+            core_tokens = deduped[: max(1, self.precision_core_max_tokens)]
+
+        if not core_tokens:
+            core_tokens = self._extract_core_query_tokens(effective_query, self.precision_core_max_tokens)
         if not core_tokens:
             return candidate_nodes, {}, [], []
 
@@ -1413,16 +1632,35 @@ Rules:
             return 0.0
         return SequenceMatcher(None, a, b).ratio()
 
+    def _token_stem(self, token):
+        """Lightweight stemmer for retrieval normalization."""
+        if not token:
+            return ''
+
+        t = token.lower().strip()
+        suffixes = ['ization', 'ation', 'ments', 'ment', 'ingly', 'edly', 'edly', 'ing', 'edly', 'ed', 'ers', 'er', 'ies', 'es', 's']
+        for suffix in suffixes:
+            if len(t) > len(suffix) + 3 and t.endswith(suffix):
+                if suffix == 'ies':
+                    return t[:-3] + 'y'
+                return t[:-len(suffix)]
+        return t
+
     def _query_token_hit_score(self, query_tokens, candidate_tokens):
         """Compute robust token hit score with exact and typo-tolerant fuzzy matches."""
         if not query_tokens or not candidate_tokens:
             return 0.0
 
         candidate_set = set(candidate_tokens)
+        candidate_stems = {self._token_stem(t) for t in candidate_set if t}
         score = 0.0
         for token in query_tokens:
+            token_stem = self._token_stem(token)
             if token in candidate_set:
                 score += 1.0
+                continue
+            if token_stem and token_stem in candidate_stems:
+                score += 0.9
                 continue
 
             if len(token) < 5:
@@ -1440,6 +1678,168 @@ Rules:
                 score += 0.7
 
         return score
+
+    def _build_doc_outline(self, tree, page_texts):
+        """Build a document-level outline used for chapter-range routing during retrieval."""
+        entries = []
+        seen = set()
+
+        for node in tree.get('nodes', []):
+            title = str(node.get('title', '')).strip()
+            if not title:
+                continue
+            start = int(node.get('start_index', 1) or 1)
+            end = int(node.get('end_index', start) or start)
+            key = (title.lower(), start, end)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append({
+                'title': title,
+                'summary': str(node.get('summary', '')).strip(),
+                'start_index': start,
+                'end_index': end,
+                'source': 'tree',
+            })
+
+        toc_entries = self._extract_outline_from_toc_pages(page_texts)
+        for entry in toc_entries:
+            key = (entry.get('title', '').lower(), entry.get('start_index'), entry.get('end_index'))
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append(entry)
+
+        entries.sort(key=lambda x: (int(x.get('start_index', 1) or 1), int(x.get('end_index', 1) or 1)))
+        return entries[:60]
+
+    def _extract_outline_from_toc_pages(self, page_texts):
+        """Extract probable chapter/unit entries from early TOC-like pages."""
+        if not page_texts:
+            return []
+
+        ordered = sorted(page_texts.keys())
+        early_pages = ordered[: min(40, len(ordered))]
+        candidates = []
+        for page_num in early_pages:
+            text = (page_texts.get(page_num) or '')
+            if not text:
+                continue
+            if 'contents' not in text.lower() and 'table of contents' not in text.lower() and 'chapter' not in text.lower():
+                continue
+
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if len(line) < 6:
+                    continue
+                match = re.match(r"^(?:chapter|unit|section)?\s*([0-9IVXLCM]+)?\s*[:\-.]?\s*(.*?)\s*(?:\.{2,}|\s{2,})(\d{1,4})\s*$", line, flags=re.IGNORECASE)
+                if not match:
+                    continue
+                title = (match.group(2) or '').strip(" .:-")
+                if len(title) < 3:
+                    continue
+                try:
+                    start = int(match.group(3))
+                except Exception:
+                    continue
+                candidates.append({'title': title, 'start_index': start, 'source': 'toc'})
+
+        if not candidates:
+            return []
+
+        dedup = {}
+        for item in candidates:
+            key = item['title'].lower()
+            prev = dedup.get(key)
+            if prev is None or item['start_index'] < prev['start_index']:
+                dedup[key] = item
+
+        unique = sorted(dedup.values(), key=lambda x: x['start_index'])
+        if not unique:
+            return []
+
+        max_page = max(int(p) for p in page_texts.keys())
+        outline = []
+        for idx, item in enumerate(unique):
+            start = item['start_index']
+            next_start = unique[idx + 1]['start_index'] if idx + 1 < len(unique) else max_page + 1
+            end = max(start, next_start - 1)
+            outline.append({
+                'title': item['title'],
+                'summary': '',
+                'start_index': start,
+                'end_index': end,
+                'source': 'toc',
+            })
+
+        return outline[:40]
+
+    def _route_outline_entries(self, query, tree):
+        """Route query to top outline entries by lexical relevance."""
+        outline = tree.get('_doc_outline', [])
+        if not outline or not query:
+            return []
+
+        query_tokens = self._tokenize_query(query)
+        if not query_tokens:
+            return []
+
+        scored = []
+        query_lower = query.lower()
+        for entry in outline:
+            text = " ".join([
+                str(entry.get('title', '')),
+                str(entry.get('summary', '')),
+            ]).lower()
+            entry_tokens = self._tokenize_query(text)
+            token_score = self._query_token_hit_score(query_tokens, entry_tokens)
+            phrase_bonus = 0.4 if query_lower and query_lower in text else 0.0
+            score = token_score + phrase_bonus
+            if score > 0:
+                scored.append((entry, score))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top_k = max(1, self.outline_route_top_k)
+        routed = []
+        for entry, score in scored[:top_k]:
+            routed.append({**entry, 'route_score': float(score)})
+
+        return routed
+
+    def _apply_outline_routing_boost(self, candidates, routed_entries):
+        """Boost candidates that overlap routed outline page ranges."""
+        if not candidates or not routed_entries:
+            return candidates
+
+        boosted = []
+        for candidate in candidates:
+            c_start = int(candidate.get('start_index', 1) or 1)
+            c_end = int(candidate.get('end_index', c_start) or c_start)
+
+            best_overlap = 0.0
+            best_route_score = 0.0
+            for entry in routed_entries:
+                r_start = int(entry.get('start_index', 1) or 1)
+                r_end = int(entry.get('end_index', r_start) or r_start)
+                overlap = max(0, min(c_end, r_end) - max(c_start, r_start) + 1)
+                if overlap <= 0:
+                    continue
+
+                cand_span = max(1, c_end - c_start + 1)
+                overlap_ratio = overlap / cand_span
+                if overlap_ratio > best_overlap:
+                    best_overlap = overlap_ratio
+                    best_route_score = float(entry.get('route_score', 0.0))
+
+            updated = dict(candidate)
+            if best_overlap > 0:
+                boost = self.outline_route_boost * best_overlap * max(0.4, min(1.6, best_route_score))
+                updated['routing_boost'] = round(boost, 3)
+                updated['score'] = float(updated.get('score', 0.0)) + boost
+            boosted.append(updated)
+
+        boosted.sort(key=lambda x: float(x.get('score', 0.0)), reverse=True)
+        return boosted
 
     def _rank_page_windows(self, query, page_texts, max_windows=8, window_radius=1):
         """Build pseudo-candidates from page-level lexical hits for coarse-tree rescue."""
