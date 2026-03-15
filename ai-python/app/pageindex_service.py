@@ -40,6 +40,11 @@ class PageIndexService:
         self.low_conf_top1 = float(os.getenv('PAGEINDEX_LOW_CONF_TOP1', '3.5'))
         self.expansion_probe_candidates = int(os.getenv('PAGEINDEX_EXPANSION_PROBE_CANDIDATES', '12'))
         self.expansion_max_terms = int(os.getenv('PAGEINDEX_EXPANSION_MAX_TERMS', '6'))
+        self.page_rescue_max_windows = int(os.getenv('PAGEINDEX_PAGE_RESCUE_MAX_WINDOWS', '8'))
+        self.page_rescue_window_radius = int(os.getenv('PAGEINDEX_PAGE_RESCUE_WINDOW_RADIUS', '1'))
+        self.tree_overview_max_pages = int(os.getenv('PAGEINDEX_TREE_OVERVIEW_MAX_PAGES', '90'))
+        self.precision_core_max_tokens = int(os.getenv('PAGEINDEX_PRECISION_CORE_MAX_TOKENS', '3'))
+        self.precision_min_grounding_score = float(os.getenv('PAGEINDEX_PRECISION_MIN_GROUNDING_SCORE', '1.0'))
 
         self._init_appwrite()
         logger.info("PageIndexService initialized")
@@ -191,17 +196,10 @@ class PageIndexService:
             return None
 
         try:
-            # Build a condensed version of the document for analysis
-            doc_summary_parts = []
-            for page_num in sorted(page_texts.keys()):
-                text = page_texts[page_num]
-                # Take first 500 chars per page as preview
-                preview = text[:500].strip()
-                if preview:
-                    doc_summary_parts.append(f"--- PAGE {page_num} ---\n{preview}")
-
-            doc_overview = "\n\n".join(doc_summary_parts[:50])  # Limit to 50 pages for prompt
-            logger.info(f"[TreeGen-LLM] Built doc_overview: {len(doc_summary_parts)} pages, {len(doc_overview)} chars")
+            # Build a condensed overview with full-document coverage.
+            doc_overview = self._build_tree_generation_overview(page_texts)
+            sampled_pages = doc_overview.count('--- PAGE ')
+            logger.info(f"[TreeGen-LLM] Built doc_overview: {sampled_pages} pages, {len(doc_overview)} chars")
 
             prompt = f"""Analyze this document and create a hierarchical tree index (like a table of contents).
 
@@ -265,6 +263,58 @@ JSON:"""
             logger.error(f"[TreeGen-LLM] EXCEPTION: {e}", exc_info=True)
             logger.error(f"LLM tree generation failed: {e}")
             return None
+
+    def _build_tree_generation_overview(self, page_texts):
+        """Create a tree-generation overview that covers the whole document, not only early pages."""
+        if not page_texts:
+            return ''
+
+        ordered_pages = sorted(page_texts.keys())
+        total_pages = len(ordered_pages)
+        max_pages = max(20, self.tree_overview_max_pages)
+
+        # Priority pages: front matter + pages that look like table of contents/index hints.
+        front_pages = ordered_pages[: min(20, total_pages)]
+        toc_like_pages = []
+        for p in ordered_pages[: min(60, total_pages)]:
+            text = (page_texts.get(p) or '').lower()
+            if ('contents' in text) or ('table of contents' in text) or ('chapter' in text and '....' in text):
+                toc_like_pages.append(p)
+
+        # Even coverage across the entire document.
+        remaining_budget = max(0, max_pages - len(set(front_pages + toc_like_pages)))
+        coverage_pages = []
+        if remaining_budget > 0 and total_pages > 0:
+            if remaining_budget >= total_pages:
+                coverage_pages = ordered_pages
+            else:
+                step = max(1, total_pages // remaining_budget)
+                coverage_pages = [ordered_pages[i] for i in range(0, total_pages, step)]
+
+        selected_pages = []
+        seen = set()
+        for p in front_pages + toc_like_pages + coverage_pages:
+            if p in seen:
+                continue
+            seen.add(p)
+            selected_pages.append(p)
+            if len(selected_pages) >= max_pages:
+                break
+
+        summary_parts = []
+        for page_num in selected_pages:
+            text = page_texts.get(page_num, '')
+            preview = (text or '')[:420].strip()
+            if preview:
+                summary_parts.append(f"--- PAGE {page_num} ---\n{preview}")
+
+        logger.info(
+            "[TreeGen-LLM] Overview sampling total_pages=%s selected=%s max_pages=%s",
+            total_pages,
+            len(summary_parts),
+            max_pages,
+        )
+        return "\n\n".join(summary_parts)
 
     def _parse_json_response(self, response):
         """Extract and parse JSON from LLM response."""
@@ -414,7 +464,7 @@ JSON:"""
                 return []
 
             expanded_query = self._expand_query(effective_query, probe_candidates)
-            if expanded_query != query:
+            if expanded_query != effective_query:
                 probe_candidates = self._rank_tree_candidates(
                     expanded_query,
                     tree,
@@ -465,6 +515,21 @@ JSON:"""
                         len(candidate_nodes),
                     )
 
+                page_rescue_candidates = self._rank_page_windows(
+                    expanded_query,
+                    page_texts,
+                    max_windows=self.page_rescue_max_windows,
+                    window_radius=self.page_rescue_window_radius,
+                )
+                if page_rescue_candidates:
+                    rescue_limit = min(self.max_candidates, candidate_budget + len(page_rescue_candidates))
+                    candidate_nodes = self._merge_candidates(candidate_nodes, page_rescue_candidates, limit=rescue_limit)
+                    logger.info(
+                        "[PageIndex-Search] Page-window rescue merged %s windows, candidate set size=%s",
+                        len(page_rescue_candidates),
+                        len(candidate_nodes),
+                    )
+
             for idx, candidate in enumerate(candidate_nodes[:5], start=1):
                 logger.info(
                     "[PageIndex-Search] Candidate %s: id=%s title=%s pages=%s-%s score=%.3f",
@@ -475,6 +540,11 @@ JSON:"""
                     candidate.get('end_index'),
                     candidate.get('score', 0.0),
                 )
+
+            guarded_candidates, grounding_scores, grounded_candidates, core_tokens = self._apply_precision_guard(
+                candidate_nodes,
+                effective_query,
+            )
 
             # Keep LLM context focused: only top-ranked candidates, not full tree.
             candidate_payload = [
@@ -487,13 +557,13 @@ JSON:"""
                     'preview': c['preview'],
                     'score_hint': round(c['score'], 3)
                 }
-                for c in candidate_nodes
+                for c in guarded_candidates
             ]
 
             prompt = f"""Given these candidate sections from a document tree:
 {json.dumps(candidate_payload, indent=2)}
 
-Query: {query}
+Query: {effective_query}
 
 Analyze the candidate sections and identify which are most relevant to answer this query.
 
@@ -525,13 +595,22 @@ JSON:"""
             result = self._parse_json_response(response)
             if not result or 'relevant_nodes' not in result:
                 logger.warning("Tree search LLM returned no relevant nodes; using ranked fallback")
-                return self._build_relevant_info(candidate_nodes[:3])
+                fallback_candidates = grounded_candidates[:3] if grounded_candidates else guarded_candidates[:3]
+                return self._build_relevant_info(fallback_candidates)
 
-            relevant_info = self._resolve_llm_selected_candidates(result.get('relevant_nodes', []), candidate_nodes)
+            relevant_info = self._resolve_llm_selected_candidates(result.get('relevant_nodes', []), guarded_candidates)
+
+            relevant_info = self._post_llm_precision_guard(
+                relevant_info,
+                grounded_candidates,
+                grounding_scores,
+                core_tokens,
+            )
 
             if not relevant_info:
                 logger.warning("Tree search LLM node IDs did not match candidates; using ranked fallback")
-                return self._build_relevant_info(candidate_nodes[:3])
+                fallback_candidates = grounded_candidates[:3] if grounded_candidates else guarded_candidates[:3]
+                return self._build_relevant_info(fallback_candidates)
 
             # Keep only unique sections while preserving order.
             deduped = []
@@ -831,6 +910,124 @@ ANSWER:"""
             logger.warning("[PageIndex-Search] Follow-up rewrite failed, using original query: %s", e)
 
         return query
+
+    def _extract_core_query_tokens(self, query, max_tokens=3):
+        """Extract a small set of high-signal query tokens for precision grounding."""
+        tokens = self._tokenize_query(query)
+        if not tokens:
+            return []
+
+        # Keep order by first appearance, prefer longer/high-signal tokens.
+        seen = set()
+        unique_tokens = []
+        for token in tokens:
+            if token in seen:
+                continue
+            seen.add(token)
+            unique_tokens.append(token)
+
+        ranked = sorted(unique_tokens, key=lambda t: (-len(t), unique_tokens.index(t)))
+        max_tokens = max(1, int(max_tokens or 3))
+        return ranked[:max_tokens]
+
+    def _candidate_grounding_score(self, candidate, core_tokens):
+        """Score how strongly a candidate is lexically grounded to core query tokens."""
+        if not candidate or not core_tokens:
+            return 0.0
+
+        title_tokens = self._tokenize_query(candidate.get('title', ''))
+        summary_tokens = self._tokenize_query(candidate.get('summary', ''))
+        preview_tokens = self._tokenize_query(candidate.get('preview', ''))
+
+        title_score = self._query_token_hit_score(core_tokens, title_tokens)
+        summary_score = self._query_token_hit_score(core_tokens, summary_tokens)
+        preview_score = self._query_token_hit_score(core_tokens, preview_tokens)
+
+        full_text = " ".join([
+            candidate.get('title', ''),
+            candidate.get('summary', ''),
+            candidate.get('preview', ''),
+        ]).lower()
+        phrase_bonus = 0.0
+        for token in core_tokens:
+            if token and token in full_text:
+                phrase_bonus += 0.2
+
+        # Title overlap is weighted highest for section-level precision.
+        return (1.6 * title_score) + (1.1 * summary_score) + (1.0 * preview_score) + phrase_bonus
+
+    def _apply_precision_guard(self, candidate_nodes, effective_query):
+        """Soft precision gate: prioritize grounded candidates without hard-filtering others."""
+        if not candidate_nodes:
+            return [], {}, [], []
+
+        core_tokens = self._extract_core_query_tokens(effective_query, self.precision_core_max_tokens)
+        if not core_tokens:
+            return candidate_nodes, {}, [], []
+
+        scored = []
+        grounding_scores = {}
+        for candidate in candidate_nodes:
+            node_id = str(candidate.get('node_id', '')).strip()
+            score = self._candidate_grounding_score(candidate, core_tokens)
+            grounding_scores[node_id] = score
+            scored.append((candidate, score))
+
+        grounded_pairs = [pair for pair in scored if pair[1] >= self.precision_min_grounding_score]
+        grounded_pairs.sort(key=lambda x: x[1], reverse=True)
+
+        if grounded_pairs:
+            grounded_ids = {str(c.get('node_id', '')).strip() for c, _ in grounded_pairs}
+            ordered = [c for c, _ in grounded_pairs]
+            ordered.extend([c for c, _ in scored if str(c.get('node_id', '')).strip() not in grounded_ids])
+            logger.info(
+                "[PageIndex-Search] Precision guard core_tokens=%s grounded=%s/%s min_score=%.2f",
+                core_tokens,
+                len(grounded_pairs),
+                len(candidate_nodes),
+                self.precision_min_grounding_score,
+            )
+            return ordered, grounding_scores, [c for c, _ in grounded_pairs], core_tokens
+
+        logger.info(
+            "[PageIndex-Search] Precision guard found no grounded candidates for core_tokens=%s; keeping original order",
+            core_tokens,
+        )
+        return candidate_nodes, grounding_scores, [], core_tokens
+
+    def _post_llm_precision_guard(self, relevant_info, grounded_candidates, grounding_scores, core_tokens):
+        """If LLM picks only ungrounded nodes while grounded options exist, replace with grounded fallback."""
+        if not relevant_info or not grounded_candidates:
+            return relevant_info
+
+        min_score = self.precision_min_grounding_score
+        selected_scores = []
+        for section in relevant_info:
+            node_id = str(section.get('node_id', '')).strip()
+            selected_scores.append(float(grounding_scores.get(node_id, 0.0)))
+
+        has_grounded_selection = any(score >= min_score for score in selected_scores)
+        if has_grounded_selection:
+            return relevant_info
+
+        replacement_count = max(1, min(3, len(relevant_info)))
+        replacements = []
+        for candidate in grounded_candidates[:replacement_count]:
+            replacements.append({
+                'node_id': str(candidate.get('node_id', '')).strip(),
+                'title': candidate.get('title', ''),
+                'reason': f"Selected by precision guard (grounded on core query tokens: {', '.join(core_tokens)})",
+                'pages': candidate.get('pages', []),
+            })
+
+        if replacements:
+            logger.info(
+                "[PageIndex-Search] Precision guard replaced ungrounded LLM selection with %s grounded candidates",
+                len(replacements),
+            )
+            return replacements
+
+        return relevant_info
 
     def _expand_query(self, query, probe_candidates):
         """Expand query using document-adaptive pseudo-relevance feedback (no domain hardcoding)."""
@@ -1210,6 +1407,107 @@ Rules:
 
         return "\n".join(collected)
 
+    def _token_similarity(self, a, b):
+        """Return normalized similarity between two tokens."""
+        if not a or not b:
+            return 0.0
+        return SequenceMatcher(None, a, b).ratio()
+
+    def _query_token_hit_score(self, query_tokens, candidate_tokens):
+        """Compute robust token hit score with exact and typo-tolerant fuzzy matches."""
+        if not query_tokens or not candidate_tokens:
+            return 0.0
+
+        candidate_set = set(candidate_tokens)
+        score = 0.0
+        for token in query_tokens:
+            if token in candidate_set:
+                score += 1.0
+                continue
+
+            if len(token) < 5:
+                continue
+
+            best = 0.0
+            for cand in candidate_set:
+                if abs(len(cand) - len(token)) > 3:
+                    continue
+                sim = self._token_similarity(token, cand)
+                if sim > best:
+                    best = sim
+
+            if best >= 0.84:
+                score += 0.7
+
+        return score
+
+    def _rank_page_windows(self, query, page_texts, max_windows=8, window_radius=1):
+        """Build pseudo-candidates from page-level lexical hits for coarse-tree rescue."""
+        if not query or not page_texts:
+            return []
+
+        query_tokens = self._tokenize_query(query)
+        query_lower = query.lower()
+        if not query_tokens:
+            return []
+
+        page_scores = []
+        for page_key, text in page_texts.items():
+            try:
+                page_num = int(page_key)
+            except Exception:
+                continue
+
+            content = (text or '').strip()
+            if not content:
+                continue
+
+            content_lower = content.lower()
+            candidate_tokens = self._tokenize_query(content_lower)
+            token_score = self._query_token_hit_score(query_tokens, candidate_tokens)
+            phrase_hit = 1.0 if query_lower in content_lower else 0.0
+            if token_score <= 0 and phrase_hit <= 0:
+                continue
+
+            score = (2.2 * token_score) + (3.0 * phrase_hit)
+            page_scores.append((page_num, score, content))
+
+        if not page_scores:
+            return []
+
+        page_scores.sort(key=lambda x: x[1], reverse=True)
+        selected = []
+        used_pages = set()
+        max_windows = max(1, max_windows)
+        window_radius = max(0, window_radius)
+
+        for page_num, score, _ in page_scores:
+            if len(selected) >= max_windows:
+                break
+            if page_num in used_pages:
+                continue
+
+            start = max(1, page_num - window_radius)
+            end = page_num + window_radius
+            pages = list(range(start, end + 1))
+            for p in pages:
+                used_pages.add(p)
+
+            preview = self._node_preview_text(pages, page_texts)
+            selected.append({
+                'node_id': f"page-{page_num:05d}",
+                'title': f"Pages {start}-{end} (keyword match)",
+                'summary': 'High lexical overlap with user query from page text',
+                'start_index': start,
+                'end_index': end,
+                'pages': pages,
+                'depth': 99,
+                'preview': preview[:300],
+                'score': score,
+            })
+
+        return selected
+
     def _rank_tree_candidates(self, query, tree, page_texts, max_candidates=20):
         """Rank tree nodes with lexical + structure signals before LLM selection."""
         query_tokens = self._tokenize_query(query)
@@ -1230,8 +1528,9 @@ Rules:
                 node.get('summary', ''),
                 preview
             ]).lower()
+            candidate_tokens = self._tokenize_query(haystack)
 
-            token_hits = sum(1 for t in query_tokens if t in haystack)
+            token_hits = self._query_token_hit_score(query_tokens, candidate_tokens)
             phrase_hit = 1 if query_lower in haystack else 0
             page_span = max(1, (node['end_index'] - node['start_index'] + 1))
             specificity_bonus = 1.0 / page_span
